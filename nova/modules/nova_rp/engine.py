@@ -22,7 +22,12 @@ class NovaRP:
     def design(self, spec: RocketEngineSpec) -> EngineDesignResult:
         combustion_solver = CombustionSolver()
         nozzle_solver = NozzleFlowSolver()
-        combustion = combustion_solver.solve(spec.propellant, self._optimal_OF(spec), spec.chamber_pressure_bar)
+        combustion = combustion_solver.solve(
+            spec.propellant,
+            self._optimal_OF(spec),
+            spec.chamber_pressure_bar,
+            expansion_ratio=spec.expansion_ratio,
+        )
 
         throat_area_m2 = nozzle_solver.throat_area(spec.thrust_N, spec.chamber_pressure_bar, combustion.Cf)
         throat_radius_mm = math.sqrt(throat_area_m2 / math.pi) * 1000.0

@@ -31,18 +31,27 @@ def test_throat_area_uses_thrust_coefficient_relation():
 
 def test_combustion_solver_returns_reference_ranges_for_kerolox():
     result = CombustionSolver().solve("kerolox", OF_ratio=2.56, chamber_pressure_bar=50.0)
-    assert 3500.0 < result.T_c < 3800.0
-    assert 260.0 < result.Isp < 290.0
-    assert 1.15 < result.gamma < 1.25
-    assert result.Cf == pytest.approx(1.53, rel=0.03)
+    assert result.T_c == pytest.approx(3616.8, rel=0.01)
+    assert result.Isp == pytest.approx(351.4, rel=0.01)
+    assert result.gamma == pytest.approx(1.136, rel=0.01)
+    assert result.molecular_weight_g_mol == pytest.approx(23.25, rel=0.01)
+    assert result.Cf == pytest.approx(1.925, rel=0.01)
+
+
+def test_combustion_solver_returns_reference_ranges_for_methalox():
+    result = CombustionSolver().solve("methalox", OF_ratio=3.55, chamber_pressure_bar=50.0)
+    assert result.T_c == pytest.approx(3516.2, rel=0.01)
+    assert result.Isp == pytest.approx(362.0, rel=0.01)
+    assert result.gamma == pytest.approx(1.128, rel=0.01)
+    assert result.molecular_weight_g_mol == pytest.approx(21.97, rel=0.01)
 
 
 def test_combustion_solver_returns_reference_ranges_for_hydrolox():
     result = CombustionSolver().solve("hydrolox", OF_ratio=5.50, chamber_pressure_bar=50.0)
-    assert result.T_c == pytest.approx(3500.0, rel=0.02)
-    assert result.Isp == pytest.approx(450.0, rel=0.02)
-    assert result.gamma == pytest.approx(1.26, rel=0.01)
-    assert result.molecular_weight_g_mol == pytest.approx(10.0, rel=0.02)
+    assert result.T_c == pytest.approx(3368.1, rel=0.01)
+    assert result.Isp == pytest.approx(448.7, rel=0.01)
+    assert result.gamma == pytest.approx(1.145, rel=0.01)
+    assert result.molecular_weight_g_mol == pytest.approx(12.62, rel=0.01)
 
 
 def test_cooling_channel_solver_has_positive_temperatures_and_pressure_drop():
