@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field, is_dataclass
+from dataclasses import dataclass, field, fields, is_dataclass
 from typing import Any
 
 import numpy as np
@@ -185,15 +185,14 @@ class CEMRunResult:
 def to_jsonable(value: Any) -> Any:
     """Convert NOVA result objects and arrays into JSON-compatible objects."""
 
+    if hasattr(value, "to_dict"):
+        return value.to_dict()
     if is_dataclass(value):
-        return {key: to_jsonable(val) for key, val in asdict(value).items()}
+        return {item.name: to_jsonable(getattr(value, item.name)) for item in fields(value)}
     if isinstance(value, np.ndarray):
         return value.tolist()
     if isinstance(value, dict):
         return {str(key): to_jsonable(val) for key, val in value.items()}
     if isinstance(value, (list, tuple)):
         return [to_jsonable(item) for item in value]
-    if hasattr(value, "to_dict"):
-        return value.to_dict()
     return value
-

@@ -45,29 +45,57 @@ class RocketNozzleGeometry:
             ]
         )
 
+        channel_width = max(0.8, 0.30 * wall_thickness_mm)
         channel_depth_mm = max(0.5, min(0.75, 0.22 * wall_thickness_mm))
+        outer_jacket_mm = max(0.6, 0.55 * wall_thickness_mm)
         outer_profile = inner_profile.copy()
-        outer_profile[:, 1] += wall_thickness_mm + channel_depth_mm
+        outer_profile[:, 1] += wall_thickness_mm + channel_depth_mm + outer_jacket_mm
         shell = self.builder.revolved_shell(inner_profile, outer_profile, self.segments, "bell_nozzle_shell")
 
         total_length = float(inner_profile[-1, 0])
         exit_radius = float(nozzle_r[-1])
-        injector_flange = self.builder.cylinder(
-            chamber_radius_mm + wall_thickness_mm + 10.0,
+        injector_flange_outer_radius = chamber_radius_mm + wall_thickness_mm + channel_depth_mm + outer_jacket_mm + 10.0
+        injector_flange = self.builder.annular_cylinder(
+            injector_flange_outer_radius,
+            chamber_radius_mm + 0.5,
             8.0,
             center=(0.0, 0.0, -4.0),
-            segments=self.segments,
         )
-        exit_flange = self.builder.cylinder(
-            exit_radius + wall_thickness_mm + 8.0,
+        injector_flange = self.builder.cut_through_holes_z(
+            injector_flange,
+            self._bolt_circle_points(injector_flange_outer_radius - 4.0, self._bolt_count(injector_flange_outer_radius)),
+            diameter_mm=3.2,
+            depth_mm=12.0,
+        )
+        exit_flange_outer_radius = exit_radius + wall_thickness_mm + channel_depth_mm + outer_jacket_mm + 8.0
+        exit_flange = self.builder.annular_cylinder(
+            exit_flange_outer_radius,
+            exit_radius + 0.5,
             6.0,
             center=(0.0, 0.0, total_length + 3.0),
-            segments=self.segments,
+        )
+        exit_flange = self.builder.cut_through_holes_z(
+            exit_flange,
+            self._bolt_circle_points(exit_flange_outer_radius - 3.2, self._bolt_count(exit_flange_outer_radius)),
+            diameter_mm=2.8,
+            depth_mm=10.0,
         )
         solid = self.builder.boolean_union(shell, injector_flange, exit_flange)
-        channel_width = max(0.8, 0.30 * wall_thickness_mm)
         circumferential_pitch = max(1.0, (2.0 * math.pi * (chamber_radius_mm + wall_thickness_mm)) / max(n_cooling_channels, 1))
         helix_pitch = max(total_length / 1.2, 80.0)
+        channel_cut_diameter = min(channel_width, channel_depth_mm)
+        channel_start_z = min(max(2.0, 0.02 * chamber_length_mm), chamber_length_mm * 0.2)
+        channel_end_z = max(channel_start_z + 5.0, chamber_length_mm * 0.96)
+        solid = self.builder.cut_helical_channels(
+            solid=solid,
+            n_channels=n_cooling_channels,
+            channel_diameter_mm=channel_cut_diameter,
+            helix_radius_mm=chamber_radius_mm + wall_thickness_mm + channel_depth_mm / 2.0,
+            pitch_mm=helix_pitch,
+            start_z=channel_start_z,
+            end_z=channel_end_z,
+        )
+        solid.name = "bell_nozzle_with_helical_cooling"
         channel_paths = self._channel_paths(
             radius_profile=outer_profile,
             n_channels=n_cooling_channels,
@@ -95,9 +123,14 @@ class RocketNozzleGeometry:
             "total_length_mm": total_length + 6.0,
             "min_wall_thickness_mm": wall_thickness_mm,
             "min_channel_diameter_mm": min(channel_width, channel_depth_mm),
+            "outer_jacket_mm": outer_jacket_mm,
             "n_cooling_channels": n_cooling_channels,
+            "n_cooling_channels_cut": n_cooling_channels,
             "channel_pitch_mm": circumferential_pitch,
             "helix_pitch_mm": helix_pitch,
+            "channel_cut_diameter_mm": channel_cut_diameter,
+            "channel_cut_start_z_mm": channel_start_z,
+            "channel_cut_end_z_mm": channel_end_z,
             "max_overhang_angle_deg": 38.0,
             "feature_trace": [
                 "thrust requirement -> throat area -> throat radius",
@@ -155,6 +188,17 @@ class RocketNozzleGeometry:
             paths.append(np.column_stack([radius * np.cos(theta), radius * np.sin(theta), z]))
         return paths
 
+    @staticmethod
+    def _bolt_count(radius_mm: float) -> int:
+        return max(6, int(math.ceil(2.0 * math.pi * radius_mm / 28.0)))
+
+    @staticmethod
+    def _bolt_circle_points(radius_mm: float, count: int) -> list[tuple[float, float]]:
+        return [
+            (radius_mm * math.cos(2.0 * math.pi * i / count), radius_mm * math.sin(2.0 * math.pi * i / count))
+            for i in range(count)
+        ]
+
 
 class InjectorHeadGeometry:
     def __init__(self, segments: int = 96) -> None:
@@ -174,6 +218,23 @@ class InjectorHeadGeometry:
         radius = max(oxidizer_post_dia_mm * 3.0, math.sqrt(n_elements) * element_pitch_mm * 0.62)
         disk = self.builder.cylinder(radius, manifold_thickness_mm, center=(0.0, 0.0, -manifold_thickness_mm / 2.0), segments=self.segments)
         element_positions = self._element_positions(n_elements, element_pitch_mm)
+        disk = self.builder.cut_through_holes_z(
+            disk,
+            [(float(x), float(y)) for x, y in element_positions],
+            diameter_mm=oxidizer_post_dia_mm,
+            depth_mm=manifold_thickness_mm * 1.4,
+        )
+        bolt_count = max(6, int(math.ceil(2.0 * math.pi * radius / 26.0)))
+        bolt_radius = max(radius - 3.5, radius * 0.78)
+        disk = self.builder.cut_through_holes_z(
+            disk,
+            [
+                (bolt_radius * math.cos(2.0 * math.pi * i / bolt_count), bolt_radius * math.sin(2.0 * math.pi * i / bolt_count))
+                for i in range(bolt_count)
+            ],
+            diameter_mm=max(2.4, oxidizer_post_dia_mm * 1.2),
+            depth_mm=manifold_thickness_mm * 1.4,
+        )
         disk.name = "coaxial_swirler_injector"
         disk.metadata.update(
             {

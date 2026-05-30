@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import textwrap
 import zipfile
 from pathlib import Path
@@ -20,17 +19,7 @@ class GeometryExporter:
 
     def to_step(self, solid: MeshSolid, path: str) -> None:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        data = solid.to_dict()
-        with Path(path).open("w", encoding="ascii") as handle:
-            handle.write("ISO-10303-21;\n")
-            handle.write("HEADER;\n")
-            handle.write("FILE_DESCRIPTION(('NOVA faceted mesh STEP handoff'),'2;1');\n")
-            handle.write("FILE_NAME('nova_export.step','',('NOVA'),('NOVA'),'NOVA','NOVA','');\n")
-            handle.write("FILE_SCHEMA(('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF'));\n")
-            handle.write("ENDSEC;\nDATA;\n")
-            handle.write(f"/* mesh_name={solid.name} vertices={len(solid.vertices)} faces={len(solid.faces)} */\n")
-            handle.write(f"/* metadata={json.dumps(data['metadata'], sort_keys=True)[:4000]} */\n")
-            handle.write("ENDSEC;\nEND-ISO-10303-21;\n")
+        solid.export_step(path)
 
     def to_obj(self, solid: MeshSolid, path: str) -> None:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -112,4 +101,3 @@ class PerformanceReporter:
             output.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
         output.extend(f"trailer << /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode("ascii"))
         Path(path).write_bytes(output)
-
