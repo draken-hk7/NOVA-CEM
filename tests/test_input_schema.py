@@ -9,6 +9,11 @@ def test_rocket_spec_accepts_valid_units_and_defaults():
     assert spec.manufacturing_process == "lpbf"
 
 
+def test_rocket_spec_accepts_hydrolox():
+    spec = RocketEngineSpec(thrust_N=5000.0, chamber_pressure_bar=50.0, propellant="hydrolox")
+    assert spec.propellant == "hydrolox"
+
+
 def test_rocket_spec_rejects_material_pressure_violation():
     with pytest.raises(Exception) as exc:
         RocketEngineSpec(
@@ -42,4 +47,3 @@ def test_heat_exchanger_rejects_invalid_temperature_direction():
             cold_inlet_K=290.0,
             cold_outlet_K=310.0,
         )
-

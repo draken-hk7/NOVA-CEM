@@ -75,6 +75,7 @@ class CoolantProperties:
         table = {
             "kerolox": cls("kerosene", 810.0, 1.9e-3, 0.145, 2100.0, 293.15),
             "methalox": cls("liquid methane", 422.0, 1.1e-4, 0.19, 3500.0, 112.0),
+            "hydrolox": cls("liquid hydrogen", 70.8, 1.3e-5, 0.105, 14300.0, 20.3),
             "hypergolic": cls("fuel blend", 890.0, 8.0e-4, 0.18, 2300.0, 293.15),
             "solid": cls("ablative boundary", 1.0, 1.8e-5, 0.03, 1000.0, 293.15),
             "water": cls("water", 997.0, 8.9e-4, 0.6, 4182.0, 293.15),

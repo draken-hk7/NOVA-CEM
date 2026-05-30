@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import uuid
+from datetime import datetime
 from pathlib import Path
 
 from nova.core.input_schema import HotFireTestResult, RocketEngineSpec
@@ -19,6 +19,30 @@ def parse_quantity(value: str, unit: str) -> float:
     return float(cleaned)
 
 
+def _format_number_token(value: float) -> str:
+    if float(value).is_integer():
+        return str(int(value))
+    return f"{value:g}".replace(".", "p")
+
+
+def _rocket_output_name(spec: RocketEngineSpec, timestamp: datetime | None = None) -> str:
+    stamp = (timestamp or datetime.now()).strftime("%Y-%m-%d_%H%M")
+    thrust = _format_number_token(spec.thrust_N)
+    pressure = _format_number_token(spec.chamber_pressure_bar)
+    return f"{spec.propellant}_{thrust}N_{pressure}bar_{stamp}"
+
+
+def _unique_output_dir(base_dir: Path, name: str) -> Path:
+    candidate = base_dir / name
+    if not candidate.exists():
+        return candidate
+    for index in range(2, 1000):
+        candidate = base_dir / f"{name}_{index:02d}"
+        if not candidate.exists():
+            return candidate
+    raise FileExistsError(f"Could not create a unique output directory for {name}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="nova")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -27,7 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
     design_sub = design.add_subparsers(dest="design_type", required=True)
     rocket = design_sub.add_parser("rocket-engine")
     rocket.add_argument("--thrust", required=True, help="Target thrust, e.g. 5000N")
-    rocket.add_argument("--propellant", required=True, choices=["kerolox", "methalox", "hypergolic", "solid"])
+    rocket.add_argument("--propellant", required=True, choices=["kerolox", "methalox", "hydrolox", "hypergolic", "solid"])
     rocket.add_argument("--chamber-pressure", type=float, default=50.0)
     rocket.add_argument("--expansion-ratio", type=float, default=8.0)
     rocket.add_argument("--material", default="copper", choices=["copper", "inconel", "inconel718", "titanium", "steel"])
@@ -73,9 +97,6 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _design_rocket(args: argparse.Namespace) -> int:
-    job_id = str(uuid.uuid4())
-    output_dir = Path(args.output_dir) / job_id
-    output_dir.mkdir(parents=True, exist_ok=True)
     spec = RocketEngineSpec(
         thrust_N=parse_quantity(args.thrust, "n"),
         chamber_pressure_bar=args.chamber_pressure,
@@ -84,6 +105,10 @@ def _design_rocket(args: argparse.Namespace) -> int:
         material=args.material,
         manufacturing_process=args.process,
     )
+    output_name = _rocket_output_name(spec)
+    output_dir = _unique_output_dir(Path(args.output_dir), output_name)
+    output_dir.mkdir(parents=True, exist_ok=False)
+    job_id = output_dir.name
     design = NovaRP().design(spec)
     exporter = GeometryExporter()
     reporter = PerformanceReporter()
@@ -104,4 +129,3 @@ def _design_rocket(args: argparse.Namespace) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

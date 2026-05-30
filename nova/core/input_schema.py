@@ -33,7 +33,7 @@ class RocketEngineSpec(EngineeringBaseModel):
         description="Combustion chamber stagnation pressure.",
         json_schema_extra=unit("bar"),
     )
-    propellant: Literal["kerolox", "methalox", "hypergolic", "solid"]
+    propellant: Literal["kerolox", "methalox", "hydrolox", "hypergolic", "solid"]
     expansion_ratio: float = Field(
         8.0,
         ge=1.01,
@@ -207,4 +207,3 @@ class FeedbackResponse(EngineeringBaseModel):
     accepted: bool
     records: int
     message: str
-

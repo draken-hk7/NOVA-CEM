@@ -37,6 +37,14 @@ def test_combustion_solver_returns_reference_ranges_for_kerolox():
     assert result.Cf == pytest.approx(1.53, rel=0.03)
 
 
+def test_combustion_solver_returns_reference_ranges_for_hydrolox():
+    result = CombustionSolver().solve("hydrolox", OF_ratio=5.50, chamber_pressure_bar=50.0)
+    assert result.T_c == pytest.approx(3500.0, rel=0.02)
+    assert result.Isp == pytest.approx(450.0, rel=0.02)
+    assert result.gamma == pytest.approx(1.26, rel=0.01)
+    assert result.molecular_weight_g_mol == pytest.approx(10.0, rel=0.02)
+
+
 def test_cooling_channel_solver_has_positive_temperatures_and_pressure_drop():
     heat_flux = np.full(32, 2.0e6)
     channel = ChannelGeometry(
@@ -69,4 +77,3 @@ def test_em_solver_copper_loss_and_back_emf():
     solver = EMSolver()
     assert solver.copper_loss(0.2, 10.0) == pytest.approx(20.0)
     assert solver.back_emf(100.0, 3000.0) == pytest.approx(30.0)
-

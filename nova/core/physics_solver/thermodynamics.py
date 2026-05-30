@@ -38,6 +38,17 @@ PROPELLANT_DATA = {
         "Cf": 1.57,
         "efficiency": 0.975,
     },
+    "hydrolox": {
+        "optimal_OF": 5.50,
+        "of_width": 1.40,
+        "T_c_K": 3500.0,
+        "gamma": 1.260,
+        "molecular_weight_g_mol": 10.0,
+        "Cp_J_kgK": 14200.0,
+        "c_star_m_s": 2290.0,
+        "Cf": 1.92,
+        "efficiency": 0.990,
+    },
     "hypergolic": {
         "optimal_OF": 2.05,
         "of_width": 0.65,
@@ -125,4 +136,3 @@ class CombustionSolver:
         if propellant not in PROPELLANT_DATA:
             raise PhysicsViolationError(f"Unsupported propellant: {propellant}")
         return float(PROPELLANT_DATA[propellant]["optimal_OF"])
-
