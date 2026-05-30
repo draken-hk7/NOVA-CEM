@@ -22,6 +22,6 @@ def test_revolved_bell_nozzle_is_watertight():
         n_cooling_channels=32,
     )
     assert result.solid.is_watertight
+    assert len(result.solid.shape.Solids()) == 1
     assert result.channels.n_channels == 32
     assert result.metadata["exit_radius_mm"] == pytest.approx(8.0 * math.sqrt(6.0))
-

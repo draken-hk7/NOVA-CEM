@@ -11,6 +11,9 @@ from nova.core.knowledge_engine.rules import RocketHeuristics
 from nova.core.types import ChannelGeometry, InjectorResult, RocketNozzleResult
 
 
+BOOLEAN_OVERLAP_MM = 1.0
+
+
 class RocketNozzleGeometry:
     def __init__(self, segments: int = 128) -> None:
         self.builder = GeometryBuilder()
@@ -51,6 +54,7 @@ class RocketNozzleGeometry:
         outer_profile = inner_profile.copy()
         outer_profile[:, 1] += wall_thickness_mm + channel_depth_mm + outer_jacket_mm
         shell = self.builder.revolved_shell(inner_profile, outer_profile, self.segments, "bell_nozzle_shell")
+        self._require_valid_solid(shell, "bell nozzle revolved shell", min_volume_mm3=1.0)
 
         total_length = float(inner_profile[-1, 0])
         exit_radius = float(nozzle_r[-1])
@@ -58,29 +62,34 @@ class RocketNozzleGeometry:
         injector_flange = self.builder.annular_cylinder(
             injector_flange_outer_radius,
             chamber_radius_mm + 0.5,
-            8.0,
-            center=(0.0, 0.0, -4.0),
+            8.0 + BOOLEAN_OVERLAP_MM,
+            center=(0.0, 0.0, -(8.0 + BOOLEAN_OVERLAP_MM) / 2.0 + BOOLEAN_OVERLAP_MM),
         )
+        self._require_valid_solid(injector_flange, "injector flange ring", min_volume_mm3=1.0)
         injector_flange = self.builder.cut_through_holes_z(
             injector_flange,
             self._bolt_circle_points(injector_flange_outer_radius - 4.0, self._bolt_count(injector_flange_outer_radius)),
             diameter_mm=3.2,
             depth_mm=12.0,
         )
+        self._require_valid_solid(injector_flange, "injector flange bolt holes", min_volume_mm3=1.0)
         exit_flange_outer_radius = exit_radius + wall_thickness_mm + channel_depth_mm + outer_jacket_mm + 8.0
         exit_flange = self.builder.annular_cylinder(
             exit_flange_outer_radius,
             exit_radius + 0.5,
-            6.0,
-            center=(0.0, 0.0, total_length + 3.0),
+            6.0 + BOOLEAN_OVERLAP_MM,
+            center=(0.0, 0.0, total_length + (6.0 + BOOLEAN_OVERLAP_MM) / 2.0 - BOOLEAN_OVERLAP_MM),
         )
+        self._require_valid_solid(exit_flange, "exit flange ring", min_volume_mm3=1.0)
         exit_flange = self.builder.cut_through_holes_z(
             exit_flange,
             self._bolt_circle_points(exit_flange_outer_radius - 3.2, self._bolt_count(exit_flange_outer_radius)),
             diameter_mm=2.8,
             depth_mm=10.0,
         )
+        self._require_valid_solid(exit_flange, "exit flange bolt holes", min_volume_mm3=1.0)
         solid = self.builder.boolean_union(shell, injector_flange, exit_flange)
+        self._require_valid_solid(solid, "nozzle shell and flange union", min_volume_mm3=shell.volume_mm3 * 0.95)
         circumferential_pitch = max(1.0, (2.0 * math.pi * (chamber_radius_mm + wall_thickness_mm)) / max(n_cooling_channels, 1))
         helix_pitch = max(total_length / 1.2, 80.0)
         channel_cut_diameter = min(channel_width, channel_depth_mm)
@@ -95,6 +104,7 @@ class RocketNozzleGeometry:
             start_z=channel_start_z,
             end_z=channel_end_z,
         )
+        self._require_valid_solid(solid, "helical cooling channel cut", min_volume_mm3=shell.volume_mm3 * 0.80)
         solid.name = "bell_nozzle_with_helical_cooling"
         channel_paths = self._channel_paths(
             radius_profile=outer_profile,
@@ -117,6 +127,8 @@ class RocketNozzleGeometry:
             "throat_radius_mm": throat_radius_mm,
             "chamber_radius_mm": chamber_radius_mm,
             "exit_radius_mm": exit_radius,
+            "injector_flange_outer_radius_mm": injector_flange_outer_radius,
+            "exit_flange_outer_radius_mm": exit_flange_outer_radius,
             "expansion_ratio": expansion_ratio,
             "chamber_length_mm": chamber_length_mm,
             "convergence_length_mm": convergence_length,
@@ -199,6 +211,20 @@ class RocketNozzleGeometry:
             for i in range(count)
         ]
 
+    @staticmethod
+    def _require_valid_solid(solid: MeshSolid, label: str, min_volume_mm3: float = 0.0) -> None:
+        shape = solid.shape
+        if not shape.isValid():
+            raise ValueError(f"CadQuery boolean failed: {label} produced an invalid shape")
+        solids = shape.Solids()
+        if len(solids) != 1:
+            raise ValueError(f"CadQuery boolean failed: {label} produced {len(solids)} solids instead of one")
+        if solid.volume_mm3 <= min_volume_mm3:
+            raise ValueError(
+                f"CadQuery boolean failed: {label} volume {solid.volume_mm3:.3f} mm^3 "
+                f"is below expected minimum {min_volume_mm3:.3f} mm^3"
+            )
+
 
 class InjectorHeadGeometry:
     def __init__(self, segments: int = 96) -> None:
@@ -212,10 +238,12 @@ class InjectorHeadGeometry:
         oxidizer_post_dia_mm: float,
         fuel_annulus_gap_mm: float,
         manifold_thickness_mm: float,
+        outer_radius_mm: float | None = None,
     ) -> InjectorResult:
         if min(n_elements, element_pitch_mm, oxidizer_post_dia_mm, fuel_annulus_gap_mm, manifold_thickness_mm) <= 0:
             raise ValueError("Injector dimensions must be positive")
-        radius = max(oxidizer_post_dia_mm * 3.0, math.sqrt(n_elements) * element_pitch_mm * 0.62)
+        inferred_radius = max(oxidizer_post_dia_mm * 3.0, math.sqrt(n_elements) * element_pitch_mm * 0.62)
+        radius = max(inferred_radius, outer_radius_mm or 0.0)
         disk = self.builder.cylinder(radius, manifold_thickness_mm, center=(0.0, 0.0, -manifold_thickness_mm / 2.0), segments=self.segments)
         element_positions = self._element_positions(n_elements, element_pitch_mm)
         disk = self.builder.cut_through_holes_z(
@@ -243,6 +271,7 @@ class InjectorHeadGeometry:
                 "oxidizer_post_dia_mm": oxidizer_post_dia_mm,
                 "fuel_annulus_gap_mm": fuel_annulus_gap_mm,
                 "manifold_thickness_mm": manifold_thickness_mm,
+                "outer_radius_mm": radius,
                 "element_positions_mm": element_positions.tolist(),
                 "min_wall_thickness_mm": max(0.5, fuel_annulus_gap_mm),
                 "min_channel_diameter_mm": min(oxidizer_post_dia_mm, 2.0 * fuel_annulus_gap_mm),

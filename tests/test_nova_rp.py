@@ -15,6 +15,7 @@ def test_nova_rp_design_returns_geometry_performance_and_trace():
     )
     result = NovaRP().design(spec)
     assert result.geometry.is_watertight
+    assert len(result.geometry.shape.Solids()) == 1
     assert result.performance.thrust_N == 5000.0
     assert result.performance.specific_impulse_s > 250.0
     assert result.structural.passed

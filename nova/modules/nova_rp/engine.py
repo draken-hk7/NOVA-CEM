@@ -86,6 +86,7 @@ class NovaRP:
             oxidizer_post_dia_mm=max(0.45, throat_radius_mm * 0.035),
             fuel_annulus_gap_mm=max(0.25, throat_radius_mm * 0.018),
             manifold_thickness_mm=max(6.0, wall_thickness_mm * 2.2),
+            outer_radius_mm=float(nozzle_geo.metadata.get("injector_flange_outer_radius_mm", chamber_radius_mm)),
         )
 
         full_engine = self._assemble(nozzle_geo.solid, injector.solid)
@@ -163,6 +164,9 @@ class NovaRP:
     def _assemble(self, nozzle: MeshSolid, injector: MeshSolid, turbopump: object | None = None) -> MeshSolid:
         del turbopump
         assembled = GeometryBuilder().boolean_union(nozzle, injector)
+        shape = assembled.shape
+        if not shape.isValid() or len(shape.Solids()) != 1:
+            raise ValueError("CadQuery engine assembly failed to produce a single valid solid")
         assembled.name = "nova_rp_engine"
         assembled.metadata.update({"assembly": "nozzle + injector", "module": "nova_rp"})
         return assembled

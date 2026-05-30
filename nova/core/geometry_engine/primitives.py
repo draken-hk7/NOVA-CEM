@@ -250,7 +250,7 @@ class GeometryBuilder:
             cq.Workplane("XZ")
             .polyline(profile_points)
             .close()
-            .revolve(360.0, axisStart=(0.0, 0.0, 0.0), axisEnd=(0.0, 0.0, 1.0))
+            .revolve(360.0, axisStart=(0.0, 0.0), axisEnd=(0.0, 1.0))
         )
         thickness = float(np.min(outer[:, 1] - inner[:, 1]))
         return MeshSolid(
