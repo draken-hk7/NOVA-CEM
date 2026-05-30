@@ -1,0 +1,2 @@
+"""NOVA command-line interface."""
+
