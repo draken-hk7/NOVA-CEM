@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from nova.core.input_schema import RocketEngineSpec
 from nova.core.output import GeometryExporter, PerformanceReporter
-from nova.core.types import CEMRunResult
+from nova.core.types import CEMRunResult, to_jsonable
 from nova.modules.nova_rp import NovaRP
 
 
@@ -68,6 +68,7 @@ async def design_engine(request: DashboardDesignRequest) -> dict:
                 "expansion_ratio": design.performance.expansion_ratio,
             },
             "metrics": _metrics(design),
+            "validation": _validation_results(design),
             "files": _download_urls(job_id),
             "artifact_paths": files,
         }
@@ -134,8 +135,14 @@ def _public_record(record: dict) -> dict:
         "created_at": record["created_at"],
         "parameters": record["parameters"],
         "metrics": record["metrics"],
+        "validation": record.get("validation"),
         "files": record["files"],
     }
+
+
+def _validation_results(design: object) -> dict:
+    validation = getattr(design, "validation", None)
+    return to_jsonable(validation) if validation is not None else {"passed": True, "checks": []}
 
 
 def _unique_job_id(spec: RocketEngineSpec) -> str:
@@ -191,4 +198,3 @@ def _artifact_path(record: dict, artifact: str) -> Path:
     if not path.is_relative_to(root) or not path.exists():
         raise HTTPException(status_code=404, detail=f"{artifact} artifact not found")
     return path
-

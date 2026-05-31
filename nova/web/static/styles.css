@@ -246,6 +246,88 @@ button.secondary:hover,
   margin-top: 7px;
 }
 
+.validation {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.validation h2 {
+  margin-bottom: 12px;
+}
+
+.validation-results {
+  display: grid;
+  gap: 9px;
+}
+
+.validation-check {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 10px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px;
+}
+
+.validation-icon {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.validation-check strong,
+.validation-check span,
+.validation-check p {
+  display: block;
+}
+
+.validation-check strong {
+  font-size: 13px;
+}
+
+.validation-check span {
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.validation-check p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.validation-check.passed .validation-icon {
+  background: #dff3ea;
+  color: #0c6b3f;
+}
+
+.validation-check.passed span {
+  color: #0c6b3f;
+}
+
+.validation-check.failed .validation-icon {
+  background: #fde5e1;
+  color: var(--danger);
+}
+
+.validation-check.failed {
+  border-color: #efb4ad;
+}
+
+.validation-check.failed span {
+  color: var(--danger);
+}
+
 .downloads {
   margin-top: 18px;
   padding-top: 18px;
@@ -350,4 +432,3 @@ button.secondary:hover,
     grid-template-columns: 1fr;
   }
 }
-

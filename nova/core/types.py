@@ -158,6 +158,7 @@ class EngineDesignResult:
     injector: InjectorResult
     trace: list[TraceEntry] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    validation: Any | None = None
 
 
 @dataclass(slots=True)
