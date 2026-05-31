@@ -11,7 +11,7 @@ from nova.core.geometry_engine.primitives import GeometryBuilder, MeshSolid
 from nova.core.geometry_engine.rocket_geometry import InjectorHeadGeometry, RocketNozzleGeometry
 from nova.core.input_schema import RocketEngineSpec
 from nova.core.knowledge_engine.rules import PROCESS_RULES, RocketHeuristics, get_material_properties
-from nova.core.manufacturing import ManufacturabilityEnforcer
+from nova.core.manufacturing import ManufacturabilityEnforcer, ManufacturingValidator
 from nova.core.physics_solver import CombustionSolver, CoolingChannelSolver, NozzleFlowSolver, StructuralSolver
 from nova.core.types import CoolantProperties, EngineDesignResult, EnginePerformance, TraceEntry
 
@@ -101,6 +101,23 @@ class NovaRP:
         full_engine = self._assemble(nozzle_geo.solid, injector.solid)
         mfg = ManufacturabilityEnforcer(spec.manufacturing_process, spec.material)
         final_geometry = mfg.enforce_all(full_engine)
+        final_geometry.metadata.update(
+            {
+                "material": spec.material,
+                "manufacturing_process": spec.manufacturing_process,
+                "chamber_pressure_bar": spec.chamber_pressure_bar,
+                "chamber_radius_mm": chamber_radius_mm,
+                "chamber_wall_thickness_mm": wall_thickness_mm,
+                "actual_chamber_wall_thickness_mm": wall_thickness_mm,
+                "cooling_channel_wall_mm": nozzle_geo.channels.wall_thickness_mm,
+                "minimum_local_thickness_mm": min(
+                    wall_thickness_mm,
+                    nozzle_geo.channels.wall_thickness_mm,
+                    float(final_geometry.metadata.get("min_wall_thickness_mm", wall_thickness_mm)),
+                ),
+            }
+        )
+        validation = ManufacturingValidator().validate(final_geometry)
         performance = EnginePerformance(
             specific_impulse_s=combustion.Isp,
             thrust_N=spec.thrust_N,
@@ -127,6 +144,7 @@ class NovaRP:
             injector=injector,
             trace=trace,
             metadata={"combustion": combustion, "nozzle": nozzle_geo.metadata},
+            validation=validation,
         )
 
     def _optimal_OF(self, spec: RocketEngineSpec) -> float:

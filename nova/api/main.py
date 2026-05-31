@@ -42,6 +42,7 @@ async def design_rocket_engine(spec: RocketEngineSpec) -> EngineDesignResponse:
         files = _export_design(job_id, "rocket-engine", spec.model_dump(), design, job_dir)
         JOBS[job_id].update({"status": "completed", "files": files, "design": design})
         warnings = [warning.message for warning in design.manufacturing.warnings]
+        warnings.extend(check.message for check in design.validation.checks if not check.passed)
         return EngineDesignResponse(job_id=job_id, status="completed", performance=to_jsonable(design.performance), files=files, warnings=warnings)
     except Exception as exc:
         JOBS[job_id].update({"status": "failed", "detail": str(exc)})
@@ -122,4 +123,3 @@ def _file_for(job_id: str, kind: str) -> str:
     if kind not in files:
         raise HTTPException(status_code=404, detail=f"{kind} artifact not found")
     return files[kind]
-

@@ -22,6 +22,8 @@ def test_nova_rp_design_returns_geometry_performance_and_trace():
     assert result.performance.thrust_N == 5000.0
     assert result.performance.specific_impulse_s > 250.0
     assert result.structural.passed
+    assert result.validation.passed
+    assert len(result.validation.checks) == 3
     assert result.manufacturing.passed
     assert result.trace
 
@@ -38,6 +40,7 @@ def test_nova_rp_design_returns_geometry_performance_and_trace():
     assert stl.exists() and stl.stat().st_size > 0
     assert step.exists() and step.stat().st_size > 0
     assert report.exists() and report.stat().st_size > 0
+    assert b"Structural Validation" in report.read_bytes()
 
 
 def test_nova_rp_cooling_channel_defaults_and_preview_override():

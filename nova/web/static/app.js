@@ -4,6 +4,7 @@ const statusEl = document.querySelector("#status");
 const errorEl = document.querySelector("#error");
 const activeJobEl = document.querySelector("#active-job");
 const resultCardsEl = document.querySelector("#result-cards");
+const validationResultsEl = document.querySelector("#validation-results");
 const downloadButtonsEl = document.querySelector("#download-buttons");
 const historyListEl = document.querySelector("#history-list");
 const refreshHistoryButton = document.querySelector("#refresh-history");
@@ -44,6 +45,31 @@ function formPayload() {
   };
 }
 
+function renderValidation(validation) {
+  const checks = validation?.checks || [];
+  if (!checks.length) {
+    validationResultsEl.className = "validation-results muted";
+    validationResultsEl.textContent = "No validation run";
+    return;
+  }
+  validationResultsEl.className = "validation-results";
+  validationResultsEl.innerHTML = checks.map((check) => {
+    const passed = Boolean(check.passed);
+    const icon = passed ? "&#10003;" : "!";
+    const status = passed ? "Passed" : "Warning";
+    return `
+      <article class="validation-check ${passed ? "passed" : "failed"}">
+        <span class="validation-icon" aria-hidden="true">${icon}</span>
+        <div>
+          <strong>${check.name}</strong>
+          <span>${status}</span>
+          <p>${check.message}</p>
+        </div>
+      </article>
+    `;
+  }).join("");
+}
+
 function renderResults(job) {
   activeJobEl.textContent = job.job_id;
   resultCardsEl.innerHTML = metrics.map(([key, label, unit]) => {
@@ -56,6 +82,7 @@ function renderResults(job) {
       </article>
     `;
   }).join("");
+  renderValidation(job.validation);
 
   downloadButtonsEl.classList.remove("muted");
   downloadButtonsEl.innerHTML = `
@@ -146,4 +173,3 @@ loadHistory().catch((error) => {
   setError(error.message);
   setStatus("Failed");
 });
-

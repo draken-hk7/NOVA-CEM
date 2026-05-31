@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from nova.core.geometry_engine.primitives import MeshSolid
+from nova.core.manufacturing import validate_for_stl_export
 from nova.core.types import CEMRunResult, to_jsonable
 
 
@@ -28,6 +29,7 @@ class GeometryExporter:
             kwargs["tolerance"] = tolerance
         if angular_tolerance is not None:
             kwargs["angular_tolerance"] = angular_tolerance
+        validate_for_stl_export(solid)
         solid.export_stl(path, **kwargs)
 
     def to_step(self, solid: MeshSolid, path: str) -> None:
@@ -79,6 +81,12 @@ class PerformanceReporter:
         for key, value in manufacturing.items():
             if key != "warnings":
                 lines.append(f"  {key}: {value}")
+        validation = payload.get("design", {}).get("validation")
+        if validation:
+            lines.extend(["", "Structural Validation:"])
+            for check in validation.get("checks", []):
+                status = "PASS" if check.get("passed") else "WARNING"
+                lines.append(f"  [{status}] {check.get('name')}: {check.get('message')}")
         self._write_minimal_pdf(path, "\n".join(lines))
 
     def generate_json_data(self, run_result: CEMRunResult) -> dict:
