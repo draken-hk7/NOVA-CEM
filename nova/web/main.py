@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -22,7 +23,8 @@ from nova.modules.nova_rp import NovaRP
 PACKAGE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = PACKAGE_DIR / "static"
 INDEX_HTML = STATIC_DIR / "index.html"
-WEB_JOB_ROOT = Path("outputs/web/jobs")
+OUTPUT_DIR = os.getenv("NOVA_OUTPUT_DIR", "outputs/")
+WEB_JOB_ROOT = Path(OUTPUT_DIR) / "web" / "jobs"
 JOB_INDEX = WEB_JOB_ROOT / "jobs.json"
 
 app = FastAPI(title="NOVA Web Dashboard", version="1.0")

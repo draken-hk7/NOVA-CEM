@@ -9,11 +9,15 @@ description = "NOVA Computational Engineering Model: deterministic physics-drive
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "cadquery>=2.4",
     "cea>=3.2.0",
     "fastapi>=0.110",
     "numpy>=1.26",
     "pandas>=2.0",
     "pydantic>=2.5",
+    "reportlab>=4.0",
+    "scipy>=1.11",
+    "trimesh>=4.0",
     "uvicorn>=0.27",
 ]
 
