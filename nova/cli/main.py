@@ -14,6 +14,10 @@ from nova.feedback import FeedbackIngester
 from nova.modules.nova_rp import NovaRP
 
 
+DEFAULT_CLI_MESH_TOLERANCE_MM = 0.5
+FAST_CLI_MESH_TOLERANCE_MM = 1.0
+
+
 def parse_quantity(value: str, unit: str) -> float:
     cleaned = value.strip().lower().replace(unit.lower(), "")
     return float(cleaned)
@@ -57,6 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     rocket.add_argument("--material", default="copper", choices=["copper", "inconel", "inconel718", "titanium", "steel"])
     rocket.add_argument("--process", default="lpbf", choices=["lpbf", "ebm", "directed_energy", "machined"])
     rocket.add_argument("--output-dir", default="outputs/cli")
+    rocket.add_argument("--fast", action="store_true", help="Generate a coarse 4-channel, 1 mm mesh preview.")
 
     export = sub.add_parser("export")
     export.add_argument("job_id")
@@ -109,7 +114,9 @@ def _design_rocket(args: argparse.Namespace) -> int:
     output_dir = _unique_output_dir(Path(args.output_dir), output_name)
     output_dir.mkdir(parents=True, exist_ok=False)
     job_id = output_dir.name
-    design = NovaRP().design(spec)
+    channel_count = NovaRP.FAST_PREVIEW_COOLING_CHANNELS if args.fast else None
+    mesh_tolerance_mm = FAST_CLI_MESH_TOLERANCE_MM if args.fast else DEFAULT_CLI_MESH_TOLERANCE_MM
+    design = NovaRP().design(spec, cooling_channel_count=channel_count)
     exporter = GeometryExporter()
     reporter = PerformanceReporter()
     stl = output_dir / "engine.stl"
@@ -117,13 +124,25 @@ def _design_rocket(args: argparse.Namespace) -> int:
     obj = output_dir / "engine.obj"
     report = output_dir / "report.pdf"
     data = output_dir / "data.json"
-    exporter.to_stl(design.geometry, str(stl))
+    exporter.to_stl(design.geometry, str(stl), tolerance=mesh_tolerance_mm)
     exporter.to_step(design.geometry, str(step))
-    exporter.to_obj(design.geometry, str(obj))
+    exporter.to_obj(design.geometry, str(obj), tolerance=mesh_tolerance_mm)
     run = CEMRunResult(job_id=job_id, module="rocket-engine", inputs=spec.model_dump(), design=design)
     reporter.generate_pdf_report(run, str(report))
     data.write_text(json.dumps(reporter.generate_json_data(run), indent=2), encoding="utf-8")
-    print(json.dumps({"job_id": job_id, "output_dir": str(output_dir), "stl": str(stl), "step": str(step), "report": str(report)}))
+    print(
+        json.dumps(
+            {
+                "job_id": job_id,
+                "output_dir": str(output_dir),
+                "stl": str(stl),
+                "step": str(step),
+                "report": str(report),
+                "mesh_tolerance_mm": mesh_tolerance_mm,
+                "cooling_channels": design.metadata["nozzle"].get("n_cooling_channels"),
+            }
+        )
+    )
     return 0
 
 

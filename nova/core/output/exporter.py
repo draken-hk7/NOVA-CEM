@@ -12,18 +12,34 @@ from nova.core.types import CEMRunResult, to_jsonable
 
 
 class GeometryExporter:
-    def to_stl(self, solid: MeshSolid, path: str, binary: bool = True) -> None:
+    def to_stl(
+        self,
+        solid: MeshSolid,
+        path: str,
+        binary: bool = True,
+        *,
+        tolerance: float | None = None,
+        angular_tolerance: float | None = None,
+    ) -> None:
         del binary
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        solid.export_stl(path)
+        kwargs = {}
+        if tolerance is not None:
+            kwargs["tolerance"] = tolerance
+        if angular_tolerance is not None:
+            kwargs["angular_tolerance"] = angular_tolerance
+        solid.export_stl(path, **kwargs)
 
     def to_step(self, solid: MeshSolid, path: str) -> None:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         solid.export_step(path)
 
-    def to_obj(self, solid: MeshSolid, path: str) -> None:
+    def to_obj(self, solid: MeshSolid, path: str, *, tolerance: float | None = None) -> None:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        solid.export_obj(path)
+        kwargs = {}
+        if tolerance is not None:
+            kwargs["tolerance"] = tolerance
+        solid.export_obj(path, **kwargs)
 
     def to_3mf(self, solid: MeshSolid, path: str) -> None:
         Path(path).parent.mkdir(parents=True, exist_ok=True)

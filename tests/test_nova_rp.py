@@ -16,6 +16,7 @@ def test_nova_rp_design_returns_geometry_performance_and_trace():
     result = NovaRP().design(spec)
     assert result.geometry.is_watertight
     assert len(result.geometry.shape.Solids()) == 1
+    assert result.metadata["nozzle"]["n_cooling_channels"] == 8
     assert result.performance.thrust_N == 5000.0
     assert result.performance.specific_impulse_s > 250.0
     assert result.structural.passed
@@ -35,3 +36,15 @@ def test_nova_rp_design_returns_geometry_performance_and_trace():
     assert stl.exists() and stl.stat().st_size > 0
     assert step.exists() and step.stat().st_size > 0
     assert report.exists() and report.stat().st_size > 0
+
+
+def test_nova_rp_cooling_channel_defaults_and_preview_override():
+    spec = RocketEngineSpec(
+        thrust_N=5000.0,
+        chamber_pressure_bar=50.0,
+        propellant="kerolox",
+        material="inconel",
+    )
+    rp = NovaRP()
+    assert rp._n_cooling_channels(spec, chamber_radius_mm=30.0, wall_thickness_mm=1.0) == 8
+    assert rp._n_cooling_channels(spec, chamber_radius_mm=30.0, wall_thickness_mm=1.0, requested_count=4) == 4

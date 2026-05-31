@@ -11,6 +11,10 @@ import numpy as np
 from nova.core.types import MassProperties
 
 
+DEFAULT_MESH_TOLERANCE_MM = 0.5
+DEFAULT_MESH_ANGULAR_TOLERANCE_RAD = 0.3
+
+
 def _cq() -> Any:
     """Load CadQuery lazily so non-geometry modules can still import cleanly."""
 
@@ -90,7 +94,13 @@ class MeshSolid:
     def transformed(self, translation: tuple[float, float, float]) -> "MeshSolid":
         return MeshSolid(self.workplane.translate(translation), self.name, dict(self.metadata))
 
-    def export_stl(self, path: str | Path, *, tolerance: float = 0.05, angular_tolerance: float = 0.1) -> None:
+    def export_stl(
+        self,
+        path: str | Path,
+        *,
+        tolerance: float = DEFAULT_MESH_TOLERANCE_MM,
+        angular_tolerance: float = DEFAULT_MESH_ANGULAR_TOLERANCE_RAD,
+    ) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         _cq().exporters.export(
@@ -106,10 +116,10 @@ class MeshSolid:
         path.parent.mkdir(parents=True, exist_ok=True)
         _cq().exporters.export(self.workplane, str(path), exportType="STEP")
 
-    def export_obj(self, path: str | Path) -> None:
+    def export_obj(self, path: str | Path, *, tolerance: float = DEFAULT_MESH_TOLERANCE_MM) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        vertices, faces = self._tessellated()
+        vertices, faces = self._tessellated(tolerance=tolerance)
         with path.open("w", encoding="ascii") as handle:
             handle.write(f"o {self.name}\n")
             for vertex in vertices:
@@ -133,7 +143,7 @@ class MeshSolid:
             "metadata": self.metadata,
         }
 
-    def _tessellated(self, tolerance: float = 0.1) -> tuple[np.ndarray, np.ndarray]:
+    def _tessellated(self, tolerance: float = DEFAULT_MESH_TOLERANCE_MM) -> tuple[np.ndarray, np.ndarray]:
         if self._mesh_cache is None:
             vertices, triangles = self.shape.tessellate(tolerance)
             self._mesh_cache = (

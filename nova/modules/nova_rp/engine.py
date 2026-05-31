@@ -19,7 +19,10 @@ from nova.core.types import CoolantProperties, EngineDesignResult, EnginePerform
 class NovaRP:
     """Full deterministic rocket engine design from a typed requirement spec."""
 
-    def design(self, spec: RocketEngineSpec) -> EngineDesignResult:
+    DEFAULT_COOLING_CHANNELS = 8
+    FAST_PREVIEW_COOLING_CHANNELS = 4
+
+    def design(self, spec: RocketEngineSpec, cooling_channel_count: int | None = None) -> EngineDesignResult:
         combustion_solver = CombustionSolver()
         nozzle_solver = NozzleFlowSolver()
         combustion = combustion_solver.solve(
@@ -33,7 +36,7 @@ class NovaRP:
         throat_radius_mm = math.sqrt(throat_area_m2 / math.pi) * 1000.0
         chamber_radius_mm = throat_radius_mm * RocketHeuristics.chamber_contraction_ratio(spec.thrust_N) ** 0.5
         wall_thickness_mm = self._wall_thickness(spec, chamber_radius_mm)
-        n_channels = self._n_cooling_channels(spec, chamber_radius_mm, wall_thickness_mm)
+        n_channels = self._n_cooling_channels(spec, chamber_radius_mm, wall_thickness_mm, cooling_channel_count)
         chamber_length_mm = self._chamber_length(throat_radius_mm, chamber_radius_mm)
 
         if spec.nozzle_type == "bell":
@@ -138,13 +141,21 @@ class NovaRP:
         thermal_margin = 0.35 if spec.cooling == "regenerative" else 0.9
         return max(rules.MIN_WALL_THICKNESS_MM, pressure_wall + thermal_margin)
 
-    def _n_cooling_channels(self, spec: RocketEngineSpec, chamber_radius_mm: float, wall_thickness_mm: float) -> int:
+    def _n_cooling_channels(
+        self,
+        spec: RocketEngineSpec,
+        chamber_radius_mm: float,
+        wall_thickness_mm: float,
+        requested_count: int | None = None,
+    ) -> int:
+        del chamber_radius_mm, wall_thickness_mm
         if spec.cooling != "regenerative":
             return 1
-        heat_flux_MW_m2 = 2.0 * (spec.chamber_pressure_bar / 30.0) ** 0.8
-        pitch = RocketHeuristics.cooling_channel_pitch_mm(heat_flux_MW_m2)
-        circumference = 2.0 * math.pi * (chamber_radius_mm + wall_thickness_mm)
-        return max(12, min(360, int(circumference / pitch)))
+        if requested_count is not None:
+            if requested_count <= 0:
+                raise ValueError("cooling_channel_count must be positive")
+            return int(requested_count)
+        return self.DEFAULT_COOLING_CHANNELS
 
     def _bartz_heat_flux(self, combustion: object, throat_radius_mm: float) -> np.ndarray:
         return CoolingChannelSolver.bartz_heat_flux(
