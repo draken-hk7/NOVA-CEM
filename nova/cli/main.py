@@ -57,7 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     rocket.add_argument("--thrust", required=True, help="Target thrust, e.g. 5000N")
     rocket.add_argument("--propellant", required=True, choices=["kerolox", "methalox", "hydrolox", "hypergolic", "solid"])
     rocket.add_argument("--chamber-pressure", type=float, default=50.0)
-    rocket.add_argument("--expansion-ratio", type=float, default=8.0)
+    rocket.add_argument("--expansion-ratio", type=float, default=None)
     rocket.add_argument("--material", default="copper", choices=["copper", "inconel", "inconel718", "titanium", "steel"])
     rocket.add_argument("--process", default="lpbf", choices=["lpbf", "ebm", "directed_energy", "machined"])
     rocket.add_argument("--output-dir", default="outputs/cli")
@@ -102,14 +102,16 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _design_rocket(args: argparse.Namespace) -> int:
-    spec = RocketEngineSpec(
-        thrust_N=parse_quantity(args.thrust, "n"),
-        chamber_pressure_bar=args.chamber_pressure,
-        propellant=args.propellant,
-        expansion_ratio=args.expansion_ratio,
-        material=args.material,
-        manufacturing_process=args.process,
-    )
+    spec_data = {
+        "thrust_N": parse_quantity(args.thrust, "n"),
+        "chamber_pressure_bar": args.chamber_pressure,
+        "propellant": args.propellant,
+        "material": args.material,
+        "manufacturing_process": args.process,
+    }
+    if args.expansion_ratio is not None:
+        spec_data["expansion_ratio"] = args.expansion_ratio
+    spec = RocketEngineSpec(**spec_data)
     output_name = _rocket_output_name(spec)
     output_dir = _unique_output_dir(Path(args.output_dir), output_name)
     output_dir.mkdir(parents=True, exist_ok=False)

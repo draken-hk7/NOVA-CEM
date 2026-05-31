@@ -17,6 +17,8 @@ def test_nova_rp_design_returns_geometry_performance_and_trace():
     assert result.geometry.is_watertight
     assert len(result.geometry.shape.Solids()) == 1
     assert result.metadata["nozzle"]["n_cooling_channels"] == 8
+    assert result.performance.expansion_ratio == 20.0
+    assert result.metadata["nozzle"]["expansion_ratio"] == 20.0
     assert result.performance.thrust_N == 5000.0
     assert result.performance.specific_impulse_s > 250.0
     assert result.structural.passed
@@ -48,3 +50,30 @@ def test_nova_rp_cooling_channel_defaults_and_preview_override():
     rp = NovaRP()
     assert rp._n_cooling_channels(spec, chamber_radius_mm=30.0, wall_thickness_mm=1.0) == 8
     assert rp._n_cooling_channels(spec, chamber_radius_mm=30.0, wall_thickness_mm=1.0, requested_count=4) == 4
+
+
+def test_nova_rp_propellant_expansion_ratio_defaults_and_explicit_override():
+    rp = NovaRP()
+    hydrolox = RocketEngineSpec(
+        thrust_N=5000.0,
+        chamber_pressure_bar=50.0,
+        propellant="hydrolox",
+        material="inconel",
+    )
+    kerolox = RocketEngineSpec(
+        thrust_N=5000.0,
+        chamber_pressure_bar=50.0,
+        propellant="kerolox",
+        material="inconel",
+    )
+    explicit = RocketEngineSpec(
+        thrust_N=5000.0,
+        chamber_pressure_bar=50.0,
+        propellant="hydrolox",
+        material="inconel",
+        expansion_ratio=8.0,
+    )
+
+    assert rp._effective_expansion_ratio(hydrolox) == 40.0
+    assert rp._effective_expansion_ratio(kerolox) == 20.0
+    assert rp._effective_expansion_ratio(explicit) == 8.0

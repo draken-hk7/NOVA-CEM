@@ -21,15 +21,21 @@ class NovaRP:
 
     DEFAULT_COOLING_CHANNELS = 8
     FAST_PREVIEW_COOLING_CHANNELS = 4
+    DEFAULT_EXPANSION_RATIOS = {
+        "kerolox": 20.0,
+        "methalox": 20.0,
+        "hydrolox": 40.0,
+    }
 
     def design(self, spec: RocketEngineSpec, cooling_channel_count: int | None = None) -> EngineDesignResult:
         combustion_solver = CombustionSolver()
         nozzle_solver = NozzleFlowSolver()
+        expansion_ratio = self._effective_expansion_ratio(spec)
         combustion = combustion_solver.solve(
             spec.propellant,
             self._optimal_OF(spec),
             spec.chamber_pressure_bar,
-            expansion_ratio=spec.expansion_ratio,
+            expansion_ratio=expansion_ratio,
         )
 
         throat_area_m2 = nozzle_solver.throat_area(spec.thrust_N, spec.chamber_pressure_bar, combustion.Cf)
@@ -43,7 +49,7 @@ class NovaRP:
             nozzle_geo = RocketNozzleGeometry().bell_nozzle(
                 throat_radius_mm=throat_radius_mm,
                 chamber_radius_mm=chamber_radius_mm,
-                expansion_ratio=spec.expansion_ratio,
+                expansion_ratio=expansion_ratio,
                 chamber_length_mm=chamber_length_mm,
                 wall_thickness_mm=wall_thickness_mm,
                 n_cooling_channels=n_channels,
@@ -51,7 +57,7 @@ class NovaRP:
         else:
             nozzle_geo = RocketNozzleGeometry().aerospike_nozzle(
                 throat_radius_mm=throat_radius_mm,
-                expansion_ratio=spec.expansion_ratio,
+                expansion_ratio=expansion_ratio,
                 length_mm=chamber_length_mm * 1.7,
                 wall_thickness_mm=wall_thickness_mm,
             )
@@ -101,7 +107,7 @@ class NovaRP:
             chamber_temp_K=combustion.T_c,
             mass_flow_rate_kg_s=spec.thrust_N / (combustion.Isp * 9.80665),
             chamber_pressure_bar=spec.chamber_pressure_bar,
-            expansion_ratio=spec.expansion_ratio,
+            expansion_ratio=expansion_ratio,
             thrust_coefficient=combustion.Cf,
         )
         trace = [
@@ -125,6 +131,11 @@ class NovaRP:
 
     def _optimal_OF(self, spec: RocketEngineSpec) -> float:
         return CombustionSolver.optimal_OF(spec.propellant)
+
+    def _effective_expansion_ratio(self, spec: RocketEngineSpec) -> float:
+        if "expansion_ratio" in spec.model_fields_set:
+            return spec.expansion_ratio
+        return self.DEFAULT_EXPANSION_RATIOS.get(spec.propellant, spec.expansion_ratio)
 
     def _chamber_length(self, throat_radius_mm: float, chamber_radius_mm: float) -> float:
         characteristic_length_mm = 950.0
