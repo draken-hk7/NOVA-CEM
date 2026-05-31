@@ -1,0 +1,2 @@
+"""NOVA web dashboard package."""
+

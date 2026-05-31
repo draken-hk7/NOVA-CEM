@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>NOVA Dashboard</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">NOVA-CEM</p>
+          <h1>Rocket Engine Dashboard</h1>
+        </div>
+        <div id="status" class="status" role="status">Ready</div>
+      </header>
+
+      <section class="workspace" aria-label="Rocket engine design workspace">
+        <form id="design-form" class="panel design-form">
+          <div class="panel-heading">
+            <h2>Engine Parameters</h2>
+          </div>
+
+          <label>
+            <span>Propellant</span>
+            <select id="propellant" name="propellant">
+              <option value="kerolox">Kerolox</option>
+              <option value="methalox">Methalox</option>
+              <option value="hydrolox">Hydrolox</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Thrust</span>
+            <div class="unit-input">
+              <input id="thrust_N" name="thrust_N" type="number" min="1" step="1" value="5000" required>
+              <span>N</span>
+            </div>
+          </label>
+
+          <label>
+            <span>Chamber Pressure</span>
+            <div class="unit-input">
+              <input id="chamber_pressure_bar" name="chamber_pressure_bar" type="number" min="1" step="0.1" value="50" required>
+              <span>bar</span>
+            </div>
+          </label>
+
+          <label>
+            <span>Material</span>
+            <select id="material" name="material">
+              <option value="inconel">Inconel</option>
+              <option value="copper">Copper</option>
+            </select>
+          </label>
+
+          <button id="design-button" type="submit">Design Engine</button>
+          <p id="error" class="error" hidden></p>
+        </form>
+
+        <section class="panel results-panel" aria-live="polite">
+          <div class="panel-heading">
+            <h2>Results</h2>
+            <span id="active-job" class="muted">No active job</span>
+          </div>
+          <div id="result-cards" class="cards">
+            <article class="metric-card empty">
+              <span class="metric-label">Isp</span>
+              <strong>--</strong>
+              <span class="metric-unit">s</span>
+            </article>
+            <article class="metric-card empty">
+              <span class="metric-label">Thrust</span>
+              <strong>--</strong>
+              <span class="metric-unit">N</span>
+            </article>
+            <article class="metric-card empty">
+              <span class="metric-label">Chamber Temp</span>
+              <strong>--</strong>
+              <span class="metric-unit">K</span>
+            </article>
+            <article class="metric-card empty">
+              <span class="metric-label">Engine Mass</span>
+              <strong>--</strong>
+              <span class="metric-unit">kg</span>
+            </article>
+            <article class="metric-card empty">
+              <span class="metric-label">Print Time</span>
+              <strong>--</strong>
+              <span class="metric-unit">h</span>
+            </article>
+          </div>
+
+          <div class="downloads">
+            <h2>Downloads</h2>
+            <div id="download-buttons" class="download-buttons muted">No artifacts available</div>
+          </div>
+        </section>
+      </section>
+
+      <section class="panel history-panel">
+        <div class="panel-heading">
+          <h2>Job History</h2>
+          <button id="refresh-history" class="secondary" type="button">Refresh</button>
+        </div>
+        <div id="history-list" class="history-list"></div>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
+
