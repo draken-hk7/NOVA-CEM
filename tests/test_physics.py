@@ -106,3 +106,20 @@ def test_em_solver_copper_loss_and_back_emf():
     solver = EMSolver()
     assert solver.copper_loss(0.2, 10.0) == pytest.approx(20.0)
     assert solver.back_emf(100.0, 3000.0) == pytest.approx(30.0)
+
+
+def test_em_solver_solenoid_actuator_sizing_meets_force_and_response():
+    result = EMSolver().solenoid_actuator(
+        force_N=50.0,
+        stroke_mm=10.0,
+        voltage_V=24.0,
+        response_time_ms=50.0,
+        max_temp_C=180.0,
+    )
+
+    assert result.force_output_N >= 50.0
+    assert result.response_time_ms <= 50.0
+    assert result.coil_turns > 0
+    assert result.current_draw_A > 0.0
+    assert result.coil_resistance_ohm > 0.0
+    assert result.power_consumption_W > 0.0

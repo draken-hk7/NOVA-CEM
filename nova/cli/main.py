@@ -7,10 +7,11 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from nova.core.input_schema import HeatExchangerSpec, HotFireTestResult, RocketEngineSpec
+from nova.core.input_schema import ActuatorSpec, HeatExchangerSpec, HotFireTestResult, RocketEngineSpec
 from nova.core.output import GeometryExporter, PerformanceReporter
 from nova.core.types import CEMRunResult, ProcessParams
 from nova.feedback import FeedbackIngester
+from nova.modules.nova_ea import NovaEA
 from nova.modules.nova_hx import NovaHX
 from nova.modules.nova_rp import NovaRP
 
@@ -76,6 +77,15 @@ def build_parser() -> argparse.ArgumentParser:
     hx.add_argument("--process", default="lpbf", choices=["lpbf", "ebm", "directed_energy", "machined"])
     hx.add_argument("--output-dir", default="outputs/cli")
 
+    actuator = design_sub.add_parser("actuator")
+    actuator.add_argument("--force", type=float, required=True, help="Required actuation force in N.")
+    actuator.add_argument("--stroke", type=float, required=True, help="Actuator stroke in mm.")
+    actuator.add_argument("--voltage", type=float, default=24.0, help="Operating voltage in V.")
+    actuator.add_argument("--response-time", type=float, default=50.0, help="Maximum response time in ms.")
+    actuator.add_argument("--material", default="steel", choices=["steel", "inconel", "aluminum"])
+    actuator.add_argument("--max-temp", type=float, default=120.0, help="Operating temperature in C.")
+    actuator.add_argument("--output-dir", default="outputs/cli")
+
     export = sub.add_parser("export")
     export.add_argument("job_id")
     export.add_argument("--format", nargs="+", default=["stl", "step", "report"])
@@ -99,6 +109,8 @@ def main(argv: list[str] | None = None) -> int:
         return _design_rocket(args)
     if args.command == "design" and args.design_type == "heat-exchanger":
         return _design_heat_exchanger(args)
+    if args.command == "design" and args.design_type == "actuator":
+        return _design_actuator(args)
     if args.command == "feedback" and args.feedback_command == "ingest":
         payload = json.loads(Path(args.test_data).read_text(encoding="utf-8"))
         FeedbackIngester().ingest_hot_fire_data(HotFireTestResult(**payload))
@@ -204,6 +216,51 @@ def _design_heat_exchanger(args: argparse.Namespace) -> int:
                 "ntu": design.performance.ntu,
                 "required_area_m2": design.performance.required_area_m2,
                 "pressure_drop_bar": design.performance.pressure_drop_bar,
+            }
+        )
+    )
+    return 0
+
+
+def _design_actuator(args: argparse.Namespace) -> int:
+    spec = ActuatorSpec(
+        actuator_type="solenoid",
+        force_N=args.force,
+        stroke_mm=args.stroke,
+        voltage_V=args.voltage,
+        response_time_ms=args.response_time,
+        material=args.material,
+        max_temp_C=args.max_temp,
+    )
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    output_name = f"actuator_{_format_number_token(spec.force_N)}N_{_format_number_token(spec.stroke_mm)}mm_{stamp}"
+    output_dir = _unique_output_dir(Path(args.output_dir), output_name)
+    output_dir.mkdir(parents=True, exist_ok=False)
+    job_id = output_dir.name
+    design = NovaEA().design(spec)
+    exporter = GeometryExporter()
+    reporter = PerformanceReporter()
+    stl = output_dir / "actuator.stl"
+    step = output_dir / "actuator.step"
+    report = output_dir / "report.pdf"
+    data = output_dir / "data.json"
+    exporter.to_stl(design.geometry, str(stl), tolerance=FAST_CLI_MESH_TOLERANCE_MM)
+    exporter.to_step(design.geometry, str(step))
+    run = CEMRunResult(job_id=job_id, module="actuator", inputs=spec.model_dump(), design=design)
+    reporter.generate_pdf_report(run, str(report))
+    data.write_text(json.dumps(reporter.generate_json_data(run), indent=2), encoding="utf-8")
+    print(
+        json.dumps(
+            {
+                "job_id": job_id,
+                "output_dir": str(output_dir),
+                "stl": str(stl),
+                "step": str(step),
+                "report": str(report),
+                "force_output_N": design.performance.force_output_N,
+                "current_draw_A": design.performance.current_draw_A,
+                "power_consumption_W": design.performance.power_consumption_W,
+                "response_time_ms": design.performance.response_time_ms,
             }
         )
     )

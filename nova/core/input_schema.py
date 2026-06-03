@@ -143,14 +143,28 @@ class HeatExchangerSpec(EngineeringBaseModel):
         return self
 
 
-class ElectromagneticActuatorSpec(EngineeringBaseModel):
-    target_torque_Nm: float = Field(..., gt=0.0, le=1.0e7, json_schema_extra=unit("N*m"))
-    bus_voltage_V: float = Field(..., gt=0.0, le=50000.0, json_schema_extra=unit("V"))
-    max_current_A: float = Field(..., gt=0.0, le=1.0e6, json_schema_extra=unit("A"))
-    rpm: float = Field(3000.0, ge=0.0, le=250000.0, json_schema_extra=unit("rev/min"))
-    duty_cycle: float = Field(1.0, gt=0.0, le=1.0, json_schema_extra=unit("fraction"))
-    cooling: Literal["air", "liquid", "oil"] = "air"
-    core_material: Literal["steel", "powder_iron", "ferrite"] = "steel"
+class ActuatorSpec(EngineeringBaseModel):
+    actuator_type: Literal["solenoid", "linear", "rotary"] = "solenoid"
+    force_N: float = Field(..., gt=0.0, le=100000.0, json_schema_extra=unit("N"))
+    stroke_mm: float = Field(..., gt=0.0, le=250.0, json_schema_extra=unit("mm"))
+    voltage_V: float = Field(24.0, gt=0.0, le=600.0, json_schema_extra=unit("V"))
+    response_time_ms: float = Field(50.0, gt=0.0, le=5000.0, json_schema_extra=unit("ms"))
+    material: Literal["steel", "inconel", "aluminum"] = "steel"
+    max_temp_C: float = Field(120.0, gt=-273.15, le=1200.0, json_schema_extra=unit("degC"))
+
+    @model_validator(mode="after")
+    def validate_actuator(self) -> "ActuatorSpec":
+        if self.actuator_type != "solenoid":
+            raise PhysicsViolationError(
+                "NOVA-EA currently supports solenoid valve actuator geometry",
+                requirement="actuator_type",
+                actual=self.actuator_type,
+                limit="solenoid",
+            )
+        return self
+
+
+ElectromagneticActuatorSpec = ActuatorSpec
 
 
 class BioprintingScaffoldSpec(EngineeringBaseModel):

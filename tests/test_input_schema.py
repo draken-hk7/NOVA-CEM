@@ -1,6 +1,6 @@
 import pytest
 
-from nova.core.input_schema import HeatExchangerSpec, RocketEngineSpec
+from nova.core.input_schema import ActuatorSpec, HeatExchangerSpec, RocketEngineSpec
 
 
 def test_rocket_spec_accepts_valid_units_and_defaults():
@@ -48,3 +48,10 @@ def test_heat_exchanger_rejects_invalid_temperature_direction():
             hot_outlet_temp_C=360.0,
             cold_inlet_temp_C=20.0,
         )
+
+
+def test_actuator_spec_accepts_solenoid_defaults():
+    spec = ActuatorSpec(force_N=50.0, stroke_mm=10.0, material="steel", max_temp_C=180.0)
+    assert spec.actuator_type == "solenoid"
+    assert spec.voltage_V == 24.0
+    assert spec.response_time_ms == 50.0
