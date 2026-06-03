@@ -13,7 +13,10 @@
           <p class="eyebrow">NOVA-CEM</p>
           <h1>Design Dashboard</h1>
         </div>
-        <div id="status" class="status" role="status">Ready</div>
+        <div class="topbar-actions">
+          <button id="theme-toggle" class="secondary" type="button">Dark Mode</button>
+          <div id="status" class="status" role="status">Ready</div>
+        </div>
       </header>
 
       <section class="workspace" aria-label="NOVA design workspace">
@@ -217,9 +220,57 @@
       <section class="panel history-panel">
         <div class="panel-heading">
           <h2>Job History</h2>
-          <button id="refresh-history" class="secondary" type="button">Refresh</button>
+          <div class="history-toolbar-actions">
+            <a id="export-history" class="secondary link-button" href="/api/history/export.csv">Export History</a>
+            <button id="refresh-history" class="secondary" type="button">Refresh</button>
+          </div>
+        </div>
+        <div class="history-controls" aria-label="History filters">
+          <label>
+            <span>Search</span>
+            <input id="history-search" type="search" placeholder="Job, module, material">
+          </label>
+          <label>
+            <span>Module</span>
+            <select id="module-filter">
+              <option value="">All modules</option>
+              <option value="rocket-engine">Rocket Engine</option>
+              <option value="heat-exchanger">Heat Exchanger</option>
+              <option value="actuator">Actuator</option>
+            </select>
+          </label>
+          <label>
+            <span>Propellant</span>
+            <select id="propellant-filter">
+              <option value="">All propellants</option>
+              <option value="kerolox">Kerolox</option>
+              <option value="methalox">Methalox</option>
+              <option value="hydrolox">Hydrolox</option>
+            </select>
+          </label>
+          <label>
+            <span>From</span>
+            <input id="date-from-filter" type="date">
+          </label>
+          <label>
+            <span>To</span>
+            <input id="date-to-filter" type="date">
+          </label>
+        </div>
+        <div class="compare-controls">
+          <span id="compare-count" class="muted">0 selected</span>
+          <button id="compare-button" class="secondary" type="button" disabled>Compare</button>
+          <button id="clear-compare" class="secondary" type="button">Clear</button>
         </div>
         <div id="history-list" class="history-list"></div>
+      </section>
+
+      <section id="compare-panel" class="panel compare-panel" hidden>
+        <div class="panel-heading">
+          <h2>Compare Jobs</h2>
+          <button id="close-compare" class="secondary" type="button">Close</button>
+        </div>
+        <div id="compare-content" class="compare-content"></div>
       </section>
     </main>
 

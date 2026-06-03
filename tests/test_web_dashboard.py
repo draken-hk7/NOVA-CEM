@@ -1,6 +1,9 @@
 import asyncio
+import json
 from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 import nova.web.main as web_main
 
@@ -11,6 +14,18 @@ def test_dashboard_registers_all_design_routes():
     assert "/api/design/rocket-engine" in routes
     assert "/api/design/heat-exchanger" in routes
     assert "/api/design/actuator" in routes
+    assert "/api/jobs/{job_id}" in routes
+    assert "/api/jobs/{job_id}/star" in routes
+    assert "/api/history/export.csv" in routes
+
+
+def _configure_history(monkeypatch, name: str, jobs: list[dict]) -> Path:
+    root = Path("outputs/test-artifacts/web-dashboard") / name
+    index = root / "jobs.json"
+    monkeypatch.setattr(web_main, "WEB_JOB_ROOT", root)
+    monkeypatch.setattr(web_main, "JOB_INDEX", index)
+    web_main._write_history(jobs)
+    return root
 
 
 def test_heat_exchanger_dashboard_endpoint_records_module_metrics(monkeypatch):
@@ -113,3 +128,114 @@ def test_actuator_dashboard_endpoint_records_module_metrics(monkeypatch):
     assert job["metrics"]["current_draw_A"] == 3.211
     assert set(job["files"]) == {"stl", "step", "report"}
     assert records[0]["module"] == "actuator"
+
+
+def test_starred_jobs_sort_first_and_public_history_includes_starred(monkeypatch):
+    _configure_history(
+        monkeypatch,
+        "star-sort",
+        [
+            {
+                "job_id": "new-engine",
+                "module": "rocket-engine",
+                "created_at": "2026-06-03T12:00:00",
+                "starred": False,
+                "parameters": {"propellant": "kerolox"},
+                "metrics": {"specific_impulse_s": 300.0},
+                "validation": {"passed": True, "checks": []},
+                "files": {},
+                "artifact_paths": {},
+            },
+            {
+                "job_id": "old-hx",
+                "module": "heat-exchanger",
+                "created_at": "2026-06-03T10:00:00",
+                "starred": False,
+                "parameters": {"hot_fluid": "exhaust"},
+                "metrics": {"effectiveness": 0.8},
+                "validation": {"passed": True, "checks": []},
+                "files": {},
+                "artifact_paths": {},
+            },
+        ],
+    )
+
+    response = asyncio.run(web_main.star_job("old-hx", web_main.StarJobRequest(starred=True)))
+    history = asyncio.run(web_main.history())["jobs"]
+
+    assert response["job"]["starred"]
+    assert [job["job_id"] for job in history] == ["old-hx", "new-engine"]
+    assert json.loads(web_main.JOB_INDEX.read_text(encoding="utf-8"))["jobs"][0]["starred"]
+
+
+def test_delete_job_removes_folder_and_history_but_blocks_starred(monkeypatch):
+    root = _configure_history(
+        monkeypatch,
+        "delete",
+        [
+            {
+                "job_id": "delete-me",
+                "module": "actuator",
+                "created_at": "2026-06-03T12:00:00",
+                "starred": False,
+                "parameters": {},
+                "metrics": {},
+                "validation": {"passed": True, "checks": []},
+                "files": {},
+                "artifact_paths": {},
+            },
+            {
+                "job_id": "keep-me",
+                "module": "rocket-engine",
+                "created_at": "2026-06-03T11:00:00",
+                "starred": True,
+                "parameters": {},
+                "metrics": {},
+                "validation": {"passed": True, "checks": []},
+                "files": {},
+                "artifact_paths": {},
+            },
+        ],
+    )
+    (root / "delete-me").mkdir(parents=True, exist_ok=True)
+    (root / "delete-me" / "artifact.stl").write_text("solid test\nendsolid test\n", encoding="ascii")
+    (root / "keep-me").mkdir(parents=True, exist_ok=True)
+
+    response = asyncio.run(web_main.delete_job("delete-me"))
+    remaining_ids = [job["job_id"] for job in web_main._read_history()]
+
+    assert response["deleted"]
+    assert not (root / "delete-me").exists()
+    assert remaining_ids == ["keep-me"]
+    with pytest.raises(web_main.HTTPException) as exc:
+        asyncio.run(web_main.delete_job("keep-me"))
+    assert exc.value.status_code == 409
+    assert (root / "keep-me").exists()
+
+
+def test_export_history_csv_flattens_parameters_and_metrics(monkeypatch):
+    _configure_history(
+        monkeypatch,
+        "csv",
+        [
+            {
+                "job_id": "engine-a",
+                "module": "rocket-engine",
+                "created_at": "2026-06-03T12:00:00",
+                "starred": True,
+                "parameters": {"propellant": "methalox", "material": "inconel"},
+                "metrics": {"specific_impulse_s": 330.0, "thrust_N": 5000.0},
+                "validation": {"passed": True, "checks": []},
+                "files": {},
+                "artifact_paths": {},
+            }
+        ],
+    )
+
+    response = asyncio.run(web_main.export_history_csv())
+    body = response.body.decode("utf-8")
+
+    assert "job_id,module,starred,created_at" in body
+    assert "parameter_propellant" in body
+    assert "metric_specific_impulse_s" in body
+    assert "engine-a,rocket-engine,True" in body

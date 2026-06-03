@@ -5,12 +5,15 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
+from csv import DictWriter
 from datetime import datetime
+from io import StringIO
 from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -55,6 +58,10 @@ class DashboardActuatorRequest(BaseModel):
     voltage_V: float = Field(24.0, gt=0.0)
     response_time_ms: float = Field(50.0, gt=0.0)
     material: Literal["steel", "inconel", "aluminum"] = "steel"
+
+
+class StarJobRequest(BaseModel):
+    starred: bool
 
 
 @app.get("/")
@@ -166,7 +173,43 @@ async def design_actuator(request: DashboardActuatorRequest) -> dict:
 
 @app.get("/api/history")
 async def history() -> dict:
-    return {"jobs": [_public_record(job) for job in _read_history()]}
+    return {"jobs": [_public_record(job) for job in _sorted_history(_read_history())]}
+
+
+@app.get("/api/history/export.csv")
+async def export_history_csv() -> Response:
+    content = _history_csv(_sorted_history(_read_history()))
+    return Response(
+        content=content,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="nova_history.csv"'},
+    )
+
+
+@app.patch("/api/jobs/{job_id}/star")
+async def star_job(job_id: str, request: StarJobRequest) -> dict:
+    jobs = _read_history()
+    for job in jobs:
+        if job.get("job_id") == job_id:
+            job["starred"] = request.starred
+            _write_history(_sorted_history(jobs))
+            return {"job": _public_record(job)}
+    raise HTTPException(status_code=404, detail="Job not found")
+
+
+@app.delete("/api/jobs/{job_id}")
+async def delete_job(job_id: str) -> dict:
+    jobs = _read_history()
+    record = next((job for job in jobs if job.get("job_id") == job_id), None)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if record.get("starred"):
+        raise HTTPException(status_code=409, detail="Starred jobs are protected from deletion")
+
+    _delete_job_folder(job_id)
+    remaining = [job for job in jobs if job.get("job_id") != job_id]
+    _write_history(_sorted_history(remaining))
+    return {"deleted": True, "job_id": job_id}
 
 
 @app.get("/download/{job_id}/{artifact}")
@@ -224,6 +267,7 @@ def _job_record(
     return {
         "job_id": job_id,
         "module": module,
+        "starred": False,
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "parameters": parameters,
         "metrics": metrics,
@@ -275,6 +319,7 @@ def _public_record(record: dict) -> dict:
     return {
         "job_id": record["job_id"],
         "module": record.get("module", "rocket-engine"),
+        "starred": bool(record.get("starred", False)),
         "created_at": record["created_at"],
         "parameters": record["parameters"],
         "metrics": record["metrics"],
@@ -322,7 +367,48 @@ def _write_history(jobs: list[dict]) -> None:
 def _prepend_history(record: dict) -> None:
     jobs = [job for job in _read_history() if job.get("job_id") != record["job_id"]]
     jobs.insert(0, record)
-    _write_history(jobs)
+    _write_history(_sorted_history(jobs))
+
+
+def _sorted_history(jobs: list[dict]) -> list[dict]:
+    newest_first = sorted(jobs, key=lambda job: str(job.get("created_at", "")), reverse=True)
+    return sorted(newest_first, key=lambda job: 0 if job.get("starred") else 1)
+
+
+def _delete_job_folder(job_id: str) -> None:
+    root = WEB_JOB_ROOT.resolve()
+    job_dir = (WEB_JOB_ROOT / job_id).resolve()
+    if not job_dir.is_relative_to(root):
+        raise HTTPException(status_code=400, detail="Invalid job path")
+    if job_dir.exists():
+        shutil.rmtree(job_dir)
+
+
+def _history_csv(jobs: list[dict]) -> str:
+    rows = [_flatten_history_row(job) for job in jobs]
+    default_columns = ["job_id", "module", "starred", "created_at"]
+    dynamic_columns = sorted({key for row in rows for key in row if key not in default_columns})
+    columns = default_columns + dynamic_columns
+    output = StringIO()
+    writer = DictWriter(output, fieldnames=columns, lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(rows)
+    return output.getvalue()
+
+
+def _flatten_history_row(job: dict) -> dict[str, object]:
+    row = {
+        "job_id": job.get("job_id", ""),
+        "module": job.get("module", "rocket-engine"),
+        "starred": bool(job.get("starred", False)),
+        "created_at": job.get("created_at", ""),
+    }
+    for prefix, payload in (("parameter", job.get("parameters", {})), ("metric", job.get("metrics", {}))):
+        if isinstance(payload, dict):
+            for key, value in payload.items():
+                if isinstance(value, (str, int, float, bool)) or value is None:
+                    row[f"{prefix}_{key}"] = value
+    return row
 
 
 def _find_job(job_id: str) -> dict:

@@ -6,10 +6,25 @@ const validationResultsEl = document.querySelector("#validation-results");
 const downloadButtonsEl = document.querySelector("#download-buttons");
 const historyListEl = document.querySelector("#history-list");
 const refreshHistoryButton = document.querySelector("#refresh-history");
+const themeToggleButton = document.querySelector("#theme-toggle");
+const searchFilterEl = document.querySelector("#history-search");
+const moduleFilterEl = document.querySelector("#module-filter");
+const propellantFilterEl = document.querySelector("#propellant-filter");
+const dateFromFilterEl = document.querySelector("#date-from-filter");
+const dateToFilterEl = document.querySelector("#date-to-filter");
+const compareButton = document.querySelector("#compare-button");
+const clearCompareButton = document.querySelector("#clear-compare");
+const closeCompareButton = document.querySelector("#close-compare");
+const compareCountEl = document.querySelector("#compare-count");
+const comparePanelEl = document.querySelector("#compare-panel");
+const compareContentEl = document.querySelector("#compare-content");
 
 const numberFormat = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 3
 });
+
+let allJobs = [];
+const selectedJobIds = new Set();
 
 const modules = {
   "rocket-engine": {
@@ -96,6 +111,15 @@ function setError(message) {
   errorEl.textContent = message;
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 function moduleLabel(module) {
   return modules[module]?.label || "Rocket Engine";
 }
@@ -104,9 +128,19 @@ function metricDefinition(module) {
   return modules[module]?.metrics || modules["rocket-engine"].metrics;
 }
 
+function metricLabel(key) {
+  for (const config of Object.values(modules)) {
+    const metric = config.metrics.find(([metricKey]) => metricKey === key);
+    if (metric) {
+      return metric;
+    }
+  }
+  return [key, key, ""];
+}
+
 function formatValue(value) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
-    return "--";
+    return value ?? "--";
   }
   return numberFormat.format(value);
 }
@@ -127,9 +161,9 @@ function renderValidation(validation) {
       <article class="validation-check ${passed ? "passed" : "failed"}">
         <span class="validation-icon" aria-hidden="true">${icon}</span>
         <div>
-          <strong>${check.name}</strong>
+          <strong>${escapeHtml(check.name)}</strong>
           <span>${status}</span>
-          <p>${check.message}</p>
+          <p>${escapeHtml(check.message)}</p>
         </div>
       </article>
     `;
@@ -139,7 +173,7 @@ function renderValidation(validation) {
 function artifactLinks(files, labels) {
   return Object.entries(labels)
     .filter(([key]) => files?.[key])
-    .map(([key, label]) => `<a href="${files[key]}">${label}</a>`)
+    .map(([key, label]) => `<a href="${escapeHtml(files[key])}">${escapeHtml(label)}</a>`)
     .join("");
 }
 
@@ -150,9 +184,9 @@ function renderResults(job) {
     const value = job.metrics[key];
     return `
       <article class="metric-card">
-        <span class="metric-label">${label}</span>
-        <strong>${formatValue(value)}</strong>
-        <span class="metric-unit">${unit}</span>
+        <span class="metric-label">${escapeHtml(label)}</span>
+        <strong>${escapeHtml(formatValue(value))}</strong>
+        <span class="metric-unit">${escapeHtml(unit)}</span>
       </article>
     `;
   }).join("");
@@ -166,24 +200,78 @@ function renderResults(job) {
   }) || "No artifacts available";
 }
 
+function applyHistoryFilters() {
+  const query = searchFilterEl.value.trim().toLowerCase();
+  const moduleValue = moduleFilterEl.value;
+  const propellantValue = propellantFilterEl.value;
+  const fromValue = dateFromFilterEl.value ? new Date(`${dateFromFilterEl.value}T00:00:00`) : null;
+  const toValue = dateToFilterEl.value ? new Date(`${dateToFilterEl.value}T23:59:59`) : null;
+
+  return allJobs.filter((job) => {
+    const module = job.module || "rocket-engine";
+    const parameters = job.parameters || {};
+    const created = new Date(job.created_at);
+    const searchable = `${job.job_id} ${module} ${JSON.stringify(parameters)} ${JSON.stringify(job.metrics || {})}`.toLowerCase();
+
+    if (query && !searchable.includes(query)) {
+      return false;
+    }
+    if (moduleValue && module !== moduleValue) {
+      return false;
+    }
+    if (propellantValue && parameters.propellant !== propellantValue) {
+      return false;
+    }
+    if (fromValue && created < fromValue) {
+      return false;
+    }
+    if (toValue && created > toValue) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function renderFilteredHistory() {
+  renderHistory(applyHistoryFilters());
+}
+
 function renderHistory(jobs) {
+  selectedJobIds.forEach((jobId) => {
+    if (!allJobs.some((job) => job.job_id === jobId)) {
+      selectedJobIds.delete(jobId);
+    }
+  });
+  updateCompareControls();
+
   if (!jobs.length) {
-    historyListEl.innerHTML = '<p class="empty-state">No designs yet.</p>';
+    historyListEl.innerHTML = '<p class="empty-state">No matching designs.</p>';
     return;
   }
   historyListEl.innerHTML = jobs.map((job) => {
     const module = job.module || "rocket-engine";
+    const selected = selectedJobIds.has(job.job_id);
+    const compareDisabled = selectedJobIds.size >= 3 && !selected;
+    const protectedDelete = Boolean(job.starred);
     return `
-      <article class="history-item">
+      <article class="history-item ${job.starred ? "starred" : ""}">
+        <label class="compare-pick">
+          <input class="compare-checkbox" type="checkbox" data-job-id="${escapeHtml(job.job_id)}" ${selected ? "checked" : ""} ${compareDisabled ? "disabled" : ""}>
+          <span>Compare</span>
+        </label>
         <div>
-          <p class="history-title">${moduleLabel(module)} - ${job.job_id}</p>
-          <p class="history-meta">${job.created_at}</p>
+          <p class="history-title">${escapeHtml(moduleLabel(module))} - ${escapeHtml(job.job_id)}</p>
+          <p class="history-meta">${escapeHtml(job.created_at)}</p>
         </div>
         <div>
-          <p class="history-meta">${historyParameters(job)}</p>
-          <p class="history-metrics">${historyMetrics(job)}</p>
+          <p class="history-meta">${escapeHtml(historyParameters(job))}</p>
+          <p class="history-metrics">${escapeHtml(historyMetrics(job))}</p>
         </div>
-        <div class="history-actions">${artifactLinks(job.files, { stl: "STL", step: "STEP", report: "PDF" })}</div>
+        <div class="history-actions">
+          ${artifactLinks(job.files, { stl: "STL", step: "STEP", report: "PDF" })}
+          <button class="secondary star-action" type="button" data-job-id="${escapeHtml(job.job_id)}">${job.starred ? "Starred" : "Star"}</button>
+          <button class="secondary danger-action" type="button" data-job-id="${escapeHtml(job.job_id)}" ${protectedDelete ? "disabled" : ""}>Delete</button>
+        </div>
       </article>
     `;
   }).join("");
@@ -219,7 +307,84 @@ async function loadHistory() {
     throw new Error("Could not load job history");
   }
   const payload = await response.json();
-  renderHistory(payload.jobs);
+  allJobs = payload.jobs || [];
+  renderFilteredHistory();
+}
+
+function updateCompareControls() {
+  compareCountEl.textContent = `${selectedJobIds.size} selected`;
+  compareButton.disabled = selectedJobIds.size < 2;
+}
+
+function selectedJobs() {
+  return allJobs.filter((job) => selectedJobIds.has(job.job_id));
+}
+
+function renderCompare() {
+  const jobs = selectedJobs();
+  if (jobs.length < 2) {
+    comparePanelEl.hidden = true;
+    return;
+  }
+
+  const metricKeys = [...new Set(jobs.flatMap((job) => metricDefinition(job.module || "rocket-engine").map(([key]) => key)))];
+  compareContentEl.innerHTML = `
+    <table class="compare-table">
+      <thead>
+        <tr>
+          <th>Metric</th>
+          ${jobs.map((job) => `<th>${escapeHtml(moduleLabel(job.module || "rocket-engine"))}<span>${escapeHtml(job.job_id)}</span></th>`).join("")}
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th>Created</th>
+          ${jobs.map((job) => `<td>${escapeHtml(job.created_at)}</td>`).join("")}
+        </tr>
+        ${metricKeys.map((key) => {
+          const [, label, unit] = metricLabel(key);
+          return `
+            <tr>
+              <th>${escapeHtml(label)}</th>
+              ${jobs.map((job) => `<td>${escapeHtml(formatValue(job.metrics?.[key]))}${unit ? ` ${escapeHtml(unit)}` : ""}</td>`).join("")}
+            </tr>
+          `;
+        }).join("")}
+      </tbody>
+    </table>
+  `;
+  comparePanelEl.hidden = false;
+}
+
+async function setStarred(jobId, starred) {
+  const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/star`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ starred })
+  });
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.detail || "Could not update star");
+  }
+}
+
+async function deleteJob(jobId) {
+  const confirmed = window.confirm(`Delete job ${jobId}? This removes its output folder and history entry.`);
+  if (!confirmed) {
+    return;
+  }
+  const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, {
+    method: "DELETE"
+  });
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.detail || "Could not delete job");
+  }
+  selectedJobIds.delete(jobId);
+  await loadHistory();
+  renderCompare();
 }
 
 function bindDesignForm(module, config) {
@@ -253,7 +418,77 @@ function bindDesignForm(module, config) {
   });
 }
 
+function setTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem("nova-theme", theme);
+  themeToggleButton.textContent = theme === "dark" ? "Light Mode" : "Dark Mode";
+}
+
 Object.entries(modules).forEach(([module, config]) => bindDesignForm(module, config));
+
+for (const control of [searchFilterEl, moduleFilterEl, propellantFilterEl, dateFromFilterEl, dateToFilterEl]) {
+  control.addEventListener("input", renderFilteredHistory);
+  control.addEventListener("change", renderFilteredHistory);
+}
+
+historyListEl.addEventListener("change", (event) => {
+  const checkbox = event.target.closest(".compare-checkbox");
+  if (!checkbox) {
+    return;
+  }
+  const jobId = checkbox.dataset.jobId;
+  if (checkbox.checked && selectedJobIds.size >= 3 && !selectedJobIds.has(jobId)) {
+    checkbox.checked = false;
+    setError("Compare mode supports up to 3 jobs.");
+    return;
+  }
+  if (checkbox.checked) {
+    selectedJobIds.add(jobId);
+  } else {
+    selectedJobIds.delete(jobId);
+  }
+  renderFilteredHistory();
+  renderCompare();
+});
+
+historyListEl.addEventListener("click", async (event) => {
+  const starButton = event.target.closest(".star-action");
+  const deleteButton = event.target.closest(".danger-action");
+  try {
+    if (starButton) {
+      setError("");
+      const job = allJobs.find((item) => item.job_id === starButton.dataset.jobId);
+      await setStarred(starButton.dataset.jobId, !job?.starred);
+      await loadHistory();
+      setStatus("Ready");
+    }
+    if (deleteButton) {
+      setError("");
+      await deleteJob(deleteButton.dataset.jobId);
+      setStatus("Ready");
+    }
+  } catch (error) {
+    setError(error.message);
+    setStatus("Failed");
+  }
+});
+
+compareButton.addEventListener("click", renderCompare);
+
+clearCompareButton.addEventListener("click", () => {
+  selectedJobIds.clear();
+  comparePanelEl.hidden = true;
+  renderFilteredHistory();
+});
+
+closeCompareButton.addEventListener("click", () => {
+  comparePanelEl.hidden = true;
+});
+
+themeToggleButton.addEventListener("click", () => {
+  const current = document.documentElement.dataset.theme || "light";
+  setTheme(current === "dark" ? "light" : "dark");
+});
 
 refreshHistoryButton.addEventListener("click", async () => {
   setStatus("Refreshing");
@@ -266,6 +501,7 @@ refreshHistoryButton.addEventListener("click", async () => {
   }
 });
 
+setTheme(localStorage.getItem("nova-theme") || "light");
 loadHistory().catch((error) => {
   setError(error.message);
   setStatus("Failed");
