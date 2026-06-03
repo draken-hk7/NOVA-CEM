@@ -9,6 +9,7 @@ from typing import Any
 
 from nova.core.geometry_engine.primitives import MeshSolid
 from nova.core.manufacturing import validate_for_stl_export
+from nova.core.output.thermal_map import ThermalMapData, ThermalMapGenerator
 from nova.core.types import CEMRunResult, to_jsonable
 
 
@@ -65,6 +66,7 @@ class GeometryExporter:
 class PerformanceReporter:
     def generate_pdf_report(self, run_result: CEMRunResult, path: str) -> None:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
+        thermal_map_data = self._generate_thermal_map(run_result, path)
         payload = self.generate_json_data(run_result)
         lines = [
             "NOVA Computational Engineering Model Report",
@@ -117,7 +119,9 @@ class PerformanceReporter:
             for check in validation.get("checks", []):
                 status = "PASS" if check.get("passed") else "WARNING"
                 lines.append(f"  [{status}] {check.get('name')}: {check.get('message')}")
-        self._write_minimal_pdf(path, "\n".join(lines))
+        if thermal_map_data is not None:
+            lines.extend(["", "Thermal Map:", "  Embedded thermal map image: thermal_map.svg"])
+        self._write_minimal_pdf(path, "\n".join(lines), thermal_map_data=thermal_map_data)
 
     def generate_json_data(self, run_result: CEMRunResult) -> dict:
         return to_jsonable(run_result)
@@ -125,7 +129,16 @@ class PerformanceReporter:
     def generate_cfd_mesh(self, solid: MeshSolid, path: str) -> None:
         GeometryExporter().to_obj(solid, path)
 
-    def _write_minimal_pdf(self, path: str, text: str) -> None:
+    def _generate_thermal_map(self, run_result: CEMRunResult, report_path: str) -> ThermalMapData | None:
+        if run_result.module != "rocket-engine":
+            return None
+        thermal_path = Path(report_path).with_name("thermal_map.svg")
+        data = ThermalMapGenerator().generate_svg(run_result, thermal_path)
+        if data is not None:
+            run_result.files["thermal_map"] = str(thermal_path)
+        return data
+
+    def _write_minimal_pdf(self, path: str, text: str, thermal_map_data: ThermalMapData | None = None) -> None:
         escaped = text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
         wrapped = []
         for line in escaped.splitlines():
@@ -137,13 +150,7 @@ class PerformanceReporter:
             content_lines.append(f"({line}) Tj")
         content_lines.append("ET")
         stream = "\n".join(content_lines).encode("latin-1", errors="replace")
-        objects = [
-            b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n",
-            b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n",
-            b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj\n",
-            b"4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n",
-            f"5 0 obj << /Length {len(stream)} >> stream\n".encode("ascii") + stream + b"\nendstream endobj\n",
-        ]
+        objects = self._pdf_objects(stream, thermal_map_data)
         offsets = []
         output = bytearray(b"%PDF-1.4\n")
         for obj in objects:
@@ -155,3 +162,84 @@ class PerformanceReporter:
             output.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
         output.extend(f"trailer << /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode("ascii"))
         Path(path).write_bytes(output)
+
+    def _pdf_objects(self, text_stream: bytes, thermal_map_data: ThermalMapData | None) -> list[bytes]:
+        if thermal_map_data is None:
+            return [
+                b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n",
+                b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n",
+                b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj\n",
+                b"4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n",
+                f"5 0 obj << /Length {len(text_stream)} >> stream\n".encode("ascii") + text_stream + b"\nendstream endobj\n",
+            ]
+        map_stream = "\n".join(_thermal_map_pdf_commands(thermal_map_data)).encode("latin-1", errors="replace")
+        objects = [
+            b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n",
+            b"2 0 obj << /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >> endobj\n",
+            b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj\n",
+            b"4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n",
+            f"5 0 obj << /Length {len(text_stream)} >> stream\n".encode("ascii") + text_stream + b"\nendstream endobj\n",
+            b"6 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 7 0 R >> endobj\n",
+            f"7 0 obj << /Length {len(map_stream)} >> stream\n".encode("ascii") + map_stream + b"\nendstream endobj\n",
+        ]
+        return objects
+
+
+def _thermal_map_pdf_commands(data: ThermalMapData) -> list[str]:
+    margin_left = 54.0
+    plot_width = 504.0
+    strip_y = 410.0
+    strip_h = 82.0
+    commands = [
+        "BT /F1 18 Tf 42 740 Td (Embedded Thermal Map) Tj ET",
+        "BT /F1 10 Tf 42 722 Td (Wall temperature distribution from injector to nozzle exit. Bartz heat flux peak is marked at the throat.) Tj ET",
+    ]
+    for index, point in enumerate(data.points[:-1]):
+        next_point = data.points[index + 1]
+        x = margin_left + plot_width * point.z_mm / data.length_mm
+        x_next = margin_left + plot_width * next_point.z_mm / data.length_mm
+        r, g, b = _hex_to_rgb(point.color)
+        commands.append(f"{r:.4f} {g:.4f} {b:.4f} rg {x:.2f} {strip_y:.2f} {max(x_next - x, 0.8):.2f} {strip_h:.2f} re f")
+    commands.extend(
+        [
+            f"0 0 0 RG {margin_left:.2f} {strip_y:.2f} {plot_width:.2f} {strip_h:.2f} re S",
+            "0.10 0.13 0.16 rg",
+            f"BT /F1 9 Tf {margin_left:.2f} {strip_y - 18:.2f} Td (Injector) Tj ET",
+            f"BT /F1 9 Tf {margin_left + plot_width - 52:.2f} {strip_y - 18:.2f} Td (Nozzle exit) Tj ET",
+            f"BT /F1 9 Tf 42 366 Td (Coolest {data.min_wall_temperature_K:.0f} K) Tj ET",
+            f"BT /F1 9 Tf 180 366 Td (Hottest {data.max_wall_temperature_K:.0f} K) Tj ET",
+            f"BT /F1 9 Tf 42 348 Td (Peak heat flux {data.peak_heat_flux_W_m2 / 1.0e6:.2f} MW/m2) Tj ET",
+        ]
+    )
+    commands.extend(_pdf_marker("Throat", data.throat_z_mm, data.length_mm, margin_left, plot_width, strip_y, strip_h, (0.05, 0.08, 0.12), 526.0))
+    commands.extend(_pdf_marker("Peak heat flux", data.peak_heat_flux_z_mm, data.length_mm, margin_left, plot_width, strip_y, strip_h, (0.84, 0.16, 0.16), 544.0))
+    if data.cooling_inlet_z_mm is not None:
+        commands.extend(_pdf_marker("Cooling inlet", data.cooling_inlet_z_mm, data.length_mm, margin_left, plot_width, strip_y, strip_h, (0.09, 0.41, 1.0), 390.0))
+    if data.cooling_outlet_z_mm is not None:
+        commands.extend(_pdf_marker("Cooling outlet", data.cooling_outlet_z_mm, data.length_mm, margin_left, plot_width, strip_y, strip_h, (0.09, 0.44, 0.42), 374.0))
+    return commands
+
+
+def _pdf_marker(
+    label: str,
+    z_mm: float,
+    length_mm: float,
+    margin_left: float,
+    plot_width: float,
+    strip_y: float,
+    strip_h: float,
+    rgb: tuple[float, float, float],
+    text_y: float,
+) -> list[str]:
+    x = margin_left + plot_width * z_mm / max(length_mm, 1.0)
+    safe_label = label.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+    return [
+        f"{rgb[0]:.4f} {rgb[1]:.4f} {rgb[2]:.4f} RG 1.5 w {x:.2f} {strip_y - 8:.2f} m {x:.2f} {strip_y + strip_h + 34:.2f} l S",
+        f"{rgb[0]:.4f} {rgb[1]:.4f} {rgb[2]:.4f} rg {x - 3:.2f} {strip_y + strip_h + 28:.2f} 6 6 re f",
+        f"BT /F1 9 Tf {x + 6:.2f} {text_y:.2f} Td ({safe_label}) Tj ET",
+    ]
+
+
+def _hex_to_rgb(value: str) -> tuple[float, float, float]:
+    value = value.lstrip("#")
+    return tuple(int(value[index : index + 2], 16) / 255.0 for index in (0, 2, 4))

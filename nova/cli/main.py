@@ -177,9 +177,11 @@ def _design_rocket(args: argparse.Namespace) -> int:
     exporter.to_stl(design.geometry, str(stl), tolerance=mesh_tolerance_mm)
     exporter.to_step(design.geometry, str(step))
     exporter.to_obj(design.geometry, str(obj), tolerance=mesh_tolerance_mm)
-    run = CEMRunResult(job_id=job_id, module="rocket-engine", inputs=spec.model_dump(), design=design)
+    files = {"stl": str(stl), "step": str(step), "obj": str(obj)}
+    run = CEMRunResult(job_id=job_id, module="rocket-engine", inputs=spec.model_dump(), design=design, files=files)
     reporter.generate_pdf_report(run, str(report))
     data.write_text(json.dumps(reporter.generate_json_data(run), indent=2), encoding="utf-8")
+    files.update({"report": str(report), "json": str(data)})
     print(
         json.dumps(
             {
@@ -188,6 +190,7 @@ def _design_rocket(args: argparse.Namespace) -> int:
                 "stl": str(stl),
                 "step": str(step),
                 "report": str(report),
+                "thermal_map": files.get("thermal_map"),
                 "mesh_tolerance_mm": mesh_tolerance_mm,
                 "cooling_channels": design.metadata["nozzle"].get("n_cooling_channels"),
             }

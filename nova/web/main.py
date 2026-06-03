@@ -248,7 +248,7 @@ def _export_module_artifacts(
         exporter.to_stl(design.geometry, str(stl))
         exporter.to_step(design.geometry, str(step))
         files.update({"stl": str(stl), "step": str(step)})
-    run = CEMRunResult(job_id=job_id, module=module, inputs=inputs, design=design)
+    run = CEMRunResult(job_id=job_id, module=module, inputs=inputs, design=design, files=files)
     reporter.generate_pdf_report(run, str(report))
     data.write_text(json.dumps(reporter.generate_json_data(run), indent=2), encoding="utf-8")
     files.update({"report": str(report), "json": str(data)})

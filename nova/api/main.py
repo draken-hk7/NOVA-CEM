@@ -120,7 +120,7 @@ def _export_design(job_id: str, module: str, inputs: dict, design: object, job_d
         exporter.to_obj(design.geometry, str(obj))
         exporter.to_3mf(design.geometry, str(threemf))
         files.update({"stl": str(stl), "step": str(step), "obj": str(obj), "3mf": str(threemf)})
-    run = CEMRunResult(job_id=job_id, module=module, inputs=inputs, design=design)
+    run = CEMRunResult(job_id=job_id, module=module, inputs=inputs, design=design, files=files)
     reporter.generate_pdf_report(run, str(report))
     data.write_text(__import__("json").dumps(reporter.generate_json_data(run), indent=2), encoding="utf-8")
     files.update({"report": str(report), "json": str(data)})

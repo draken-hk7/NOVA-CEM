@@ -42,15 +42,29 @@ def test_nova_rp_design_returns_geometry_performance_and_trace():
     stl = artifact_dir / "engine.stl"
     step = artifact_dir / "engine.step"
     report = artifact_dir / "report.pdf"
+    thermal_map = artifact_dir / "thermal_map.svg"
     exporter.to_stl(result.geometry, str(stl))
     exporter.to_step(result.geometry, str(step))
-    reporter.generate_pdf_report(CEMRunResult("test-job", "rocket-engine", spec.model_dump(), result), str(report))
+    run = CEMRunResult("test-job", "rocket-engine", spec.model_dump(), result)
+    reporter.generate_pdf_report(run, str(report))
     assert stl.exists() and stl.stat().st_size > 0
     assert step.exists() and step.stat().st_size > 0
     assert report.exists() and report.stat().st_size > 0
-    assert b"Coolant Ports" in report.read_bytes()
-    assert b"Propellant Manifold" in report.read_bytes()
-    assert b"Structural Validation" in report.read_bytes()
+    assert thermal_map.exists() and thermal_map.stat().st_size > 0
+    assert run.files["thermal_map"] == str(thermal_map)
+    svg = thermal_map.read_text(encoding="utf-8")
+    assert "<svg" in svg
+    assert "CoolingChannelSolver.bartz_heat_flux" in svg
+    assert "Throat" in svg
+    assert "Cooling inlet" in svg
+    assert "Cooling outlet" in svg
+    assert "Peak heat flux" in svg
+    report_bytes = report.read_bytes()
+    assert b"Coolant Ports" in report_bytes
+    assert b"Propellant Manifold" in report_bytes
+    assert b"Structural Validation" in report_bytes
+    assert b"Embedded Thermal Map" in report_bytes
+    assert b"/Count 2" in report_bytes
 
 
 def test_nova_rp_cooling_channel_defaults_and_preview_override():
@@ -100,9 +114,10 @@ def test_nova_rp_physics_only_mode_keeps_report_without_cad_artifacts(monkeypatc
     assert result.performance.specific_impulse_s > 250.0
     assert result.mass_kg > 0.0
     assert result.validation.passed
-    assert set(files) == {"report", "json"}
+    assert set(files) == {"thermal_map", "report", "json"}
     assert set(urls) == {"report"}
     assert (artifact_dir / "report.pdf").exists()
+    assert (artifact_dir / "thermal_map.svg").exists()
 
 
 def test_nova_rp_propellant_expansion_ratio_defaults_and_explicit_override():
