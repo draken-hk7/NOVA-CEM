@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 
-from nova.core.geometry_engine.primitives import GeometryBuilder, MeshSolid
+from nova.core.geometry_engine.primitives import GeometryBuilder, MeshSolid, _cq
 
 
 class HeatExchangerGeometry:
@@ -69,29 +69,68 @@ class HeatExchangerGeometry:
         thickness_mm: float = 1.0,
         heat_transfer_area_m2: float | None = None,
     ) -> MeshSolid:
-        # First build uses a deterministic lattice envelope; an optional marching
-        # cubes backend can replace this without changing the public interface.
         x, y, z = bounds
-        struts = [self.builder.box(x, y, thickness_mm, center=(0.0, 0.0, 0.0))]
-        for i in range(max(3, resolution // 6)):
-            offset = -x / 2.0 + (i + 0.5) * x / max(3, resolution // 6)
-            struts.append(self.builder.box(thickness_mm, y, thickness_mm, center=(offset, 0.0, 0.0)))
-            struts.append(self.builder.box(x, thickness_mm, thickness_mm, center=(0.0, offset, 0.0)))
-            struts.append(self.builder.box(thickness_mm, thickness_mm, z, center=(0.0, 0.0, offset)))
-        result = self.builder.boolean_union(*struts)
-        result.name = "gyroid_minimal_surface_proxy"
+        wall_mm = max(2.0, thickness_mm)
+        channel_dia_mm = max(1.4, min(2.0, wall_mm * 0.8))
+        pitch_mm = channel_dia_mm + wall_mm
+        margin_mm = wall_mm + channel_dia_mm / 2.0
+        hot_y = self._centered_positions(y, margin_mm, pitch_mm)
+        cold_x = self._centered_positions(x, margin_mm, pitch_mm)
+        z_layers = self._centered_positions(z, margin_mm, pitch_mm)
+        hot_z = z_layers[::2]
+        cold_z = z_layers[1::2]
+        cq = _cq()
+        core = cq.Workplane("XY").box(x, y, z)
+        cut_tools = []
+        overcut_mm = 2.0
+        for z_pos in hot_z:
+            for y_pos in hot_y:
+                cut_tools.append(
+                    cq.Solid.makeCylinder(
+                        channel_dia_mm / 2.0,
+                        x + 2.0 * overcut_mm,
+                        pnt=(-x / 2.0 - overcut_mm, y_pos, z_pos),
+                        dir=(1.0, 0.0, 0.0),
+                    )
+                )
+        for z_pos in cold_z:
+            for x_pos in cold_x:
+                cut_tools.append(
+                    cq.Solid.makeCylinder(
+                        channel_dia_mm / 2.0,
+                        y + 2.0 * overcut_mm,
+                        pnt=(x_pos, -y / 2.0 - overcut_mm, z_pos),
+                        dir=(0.0, 1.0, 0.0),
+                    )
+                )
+        if cut_tools:
+            core = core.cut(cq.Workplane("XY").add(cq.Compound.makeCompound(cut_tools)))
+        result = MeshSolid(core, "gyroid_crossflow_heat_exchanger")
         result.metadata.update(
             {
                 "architecture": "gyroid",
-                "geometry_type": "gyroid_minimal_surface",
+                "geometry_type": "gyroid_crossflow_microchannel_fallback",
                 "bounds_mm": bounds,
                 "resolution": resolution,
                 "heat_transfer_area_m2": heat_transfer_area_m2,
-                "min_wall_thickness_mm": thickness_mm,
-                "min_channel_diameter_mm": max(0.5, thickness_mm),
+                "min_wall_thickness_mm": wall_mm,
+                "min_channel_diameter_mm": channel_dia_mm,
+                "hot_flow_region": {"axis": "X", "channel_count": len(hot_z) * len(hot_y)},
+                "cold_flow_region": {"axis": "Y", "channel_count": len(cold_z) * len(cold_x)},
+                "channel_pitch_mm": pitch_mm,
+                "tpms_note": "CadQuery fallback: dense cross-flow microchannel core with separated hot/cold passages.",
             }
         )
         return result
+
+    @staticmethod
+    def _centered_positions(span_mm: float, margin_mm: float, pitch_mm: float) -> list[float]:
+        usable = span_mm - 2.0 * margin_mm
+        count = max(1, int(math.floor(usable / pitch_mm)) + 1)
+        if count == 1:
+            return [0.0]
+        actual_pitch = usable / (count - 1)
+        return [-usable / 2.0 + index * actual_pitch for index in range(count)]
 
     def schwartz_P_surface(
         self,
