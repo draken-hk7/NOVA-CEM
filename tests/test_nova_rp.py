@@ -17,6 +17,8 @@ def test_nova_rp_design_returns_geometry_performance_and_trace():
     result = NovaRP().design(spec)
     assert result.geometry.is_watertight
     assert len(result.geometry.shape.Solids()) == 1
+    assert set(result.metadata["nozzle"]["coolant_ports"]) == {"inlet", "outlet"}
+    assert result.metadata["nozzle"]["coolant_ports"]["inlet"]["thread_spec"] == "M8x1.25 standard"
     assert result.metadata["nozzle"]["n_cooling_channels"] == 8
     assert result.performance.expansion_ratio == 20.0
     assert result.metadata["nozzle"]["expansion_ratio"] == 20.0
@@ -41,6 +43,7 @@ def test_nova_rp_design_returns_geometry_performance_and_trace():
     assert stl.exists() and stl.stat().st_size > 0
     assert step.exists() and step.stat().st_size > 0
     assert report.exists() and report.stat().st_size > 0
+    assert b"Coolant Ports" in report.read_bytes()
     assert b"Structural Validation" in report.read_bytes()
 
 

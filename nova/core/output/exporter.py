@@ -81,6 +81,16 @@ class PerformanceReporter:
         for key, value in manufacturing.items():
             if key != "warnings":
                 lines.append(f"  {key}: {value}")
+        ports = payload.get("design", {}).get("metadata", {}).get("nozzle", {}).get("coolant_ports", {})
+        if ports:
+            lines.extend(["", "Coolant Ports:"])
+            for name, port in ports.items():
+                position = port.get("position_mm", [])
+                position_text = ", ".join(f"{float(value):.2f}" for value in position)
+                lines.append(
+                    f"  {name}: diameter {port.get('diameter_mm')} mm, bore {port.get('bore_diameter_mm')} mm, "
+                    f"thread {port.get('thread_spec')}, position [{position_text}] mm"
+                )
         validation = payload.get("design", {}).get("validation")
         if validation:
             lines.extend(["", "Structural Validation:"])

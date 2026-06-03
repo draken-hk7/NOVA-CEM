@@ -6,12 +6,16 @@ import math
 
 import numpy as np
 
-from nova.core.geometry_engine.primitives import GeometryBuilder, MeshSolid
+from nova.core.geometry_engine.primitives import GeometryBuilder, MeshSolid, _cq
 from nova.core.knowledge_engine.rules import RocketHeuristics
 from nova.core.types import ChannelGeometry, InjectorResult, RocketNozzleResult
 
 
 BOOLEAN_OVERLAP_MM = 1.0
+COOLANT_PORT_BOSS_DIAMETER_MM = 8.0
+COOLANT_PORT_BOSS_HEIGHT_MM = 10.0
+COOLANT_PORT_BORE_DIAMETER_MM = 6.0
+COOLANT_PORT_THREAD_SPEC = "M8x1.25 standard"
 
 
 class RocketNozzleGeometry:
@@ -105,6 +109,17 @@ class RocketNozzleGeometry:
             end_z=channel_end_z,
         )
         self._require_valid_solid(solid, "helical cooling channel cut", min_volume_mm3=shell.volume_mm3 * 0.80)
+        solid, port_metadata = self._add_coolant_ports(
+            solid=solid,
+            chamber_radius_mm=chamber_radius_mm,
+            wall_thickness_mm=wall_thickness_mm,
+            channel_depth_mm=channel_depth_mm,
+            outer_jacket_mm=outer_jacket_mm,
+            helix_pitch_mm=helix_pitch,
+            channel_start_z_mm=channel_start_z,
+            channel_end_z_mm=channel_end_z,
+        )
+        self._require_valid_solid(solid, "coolant port boss and bore integration", min_volume_mm3=shell.volume_mm3 * 0.80)
         solid.name = "bell_nozzle_with_helical_cooling"
         channel_paths = self._channel_paths(
             radius_profile=outer_profile,
@@ -143,11 +158,13 @@ class RocketNozzleGeometry:
             "channel_cut_diameter_mm": channel_cut_diameter,
             "channel_cut_start_z_mm": channel_start_z,
             "channel_cut_end_z_mm": channel_end_z,
+            "coolant_ports": port_metadata,
             "max_overhang_angle_deg": 38.0,
             "feature_trace": [
                 "thrust requirement -> throat area -> throat radius",
                 "expansion ratio -> exit radius",
                 "heat flux heuristic -> cooling channel count and pitch",
+                "cooling requirement -> inlet/outlet boss fittings and radial bores",
             ],
         }
         solid.metadata.update(metadata)
@@ -199,6 +216,88 @@ class RocketNozzleGeometry:
             theta = 2.0 * math.pi * turns * (z - start_z) / max(end_z - start_z, 1.0e-9) + phase
             paths.append(np.column_stack([radius * np.cos(theta), radius * np.sin(theta), z]))
         return paths
+
+    def _add_coolant_ports(
+        self,
+        *,
+        solid: MeshSolid,
+        chamber_radius_mm: float,
+        wall_thickness_mm: float,
+        channel_depth_mm: float,
+        outer_jacket_mm: float,
+        helix_pitch_mm: float,
+        channel_start_z_mm: float,
+        channel_end_z_mm: float,
+    ) -> tuple[MeshSolid, dict[str, dict]]:
+        channel_radius = chamber_radius_mm + wall_thickness_mm + channel_depth_mm / 2.0
+        outer_radius = chamber_radius_mm + wall_thickness_mm + channel_depth_mm + outer_jacket_mm
+        port_specs = [
+            ("outlet", channel_start_z_mm, 0.0),
+            ("inlet", channel_end_z_mm, 2.0 * math.pi * (channel_end_z_mm - channel_start_z_mm) / helix_pitch_mm),
+        ]
+        result = solid
+        metadata: dict[str, dict] = {}
+        for name, z_mm, theta in port_specs:
+            direction = (math.cos(theta), math.sin(theta), 0.0)
+            boss_start_radius = outer_radius - BOOLEAN_OVERLAP_MM
+            boss_length = COOLANT_PORT_BOSS_HEIGHT_MM + BOOLEAN_OVERLAP_MM
+            boss = self._radial_cylinder(
+                radius_mm=COOLANT_PORT_BOSS_DIAMETER_MM / 2.0,
+                length_mm=boss_length,
+                start_radius_mm=boss_start_radius,
+                direction=direction,
+                z_mm=z_mm,
+                name=f"coolant_{name}_boss",
+            )
+            result = self.builder.boolean_union(result, boss)
+
+            bore_start_radius = channel_radius - BOOLEAN_OVERLAP_MM
+            bore_end_radius = outer_radius + COOLANT_PORT_BOSS_HEIGHT_MM + BOOLEAN_OVERLAP_MM
+            bore = self._radial_cylinder(
+                radius_mm=COOLANT_PORT_BORE_DIAMETER_MM / 2.0,
+                length_mm=bore_end_radius - bore_start_radius,
+                start_radius_mm=bore_start_radius,
+                direction=direction,
+                z_mm=z_mm,
+                name=f"coolant_{name}_bore",
+            )
+            result = self.builder.boolean_subtract(result, bore)
+            position = [
+                direction[0] * (outer_radius + COOLANT_PORT_BOSS_HEIGHT_MM),
+                direction[1] * (outer_radius + COOLANT_PORT_BOSS_HEIGHT_MM),
+                z_mm,
+            ]
+            metadata[name] = {
+                "diameter_mm": COOLANT_PORT_BOSS_DIAMETER_MM,
+                "boss_height_mm": COOLANT_PORT_BOSS_HEIGHT_MM,
+                "bore_diameter_mm": COOLANT_PORT_BORE_DIAMETER_MM,
+                "thread_spec": COOLANT_PORT_THREAD_SPEC,
+                "location": "near nozzle exit end" if name == "inlet" else "near injector end",
+                "position_mm": [float(value) for value in position],
+                "axis": [float(value) for value in direction],
+                "z_mm": float(z_mm),
+            }
+        result.name = solid.name
+        result.metadata.update(solid.metadata)
+        result.metadata["coolant_ports"] = metadata
+        result.metadata["coolant_port_thread_spec"] = COOLANT_PORT_THREAD_SPEC
+        result.metadata["coolant_port_diameter_mm"] = COOLANT_PORT_BOSS_DIAMETER_MM
+        return result, metadata
+
+    @staticmethod
+    def _radial_cylinder(
+        *,
+        radius_mm: float,
+        length_mm: float,
+        start_radius_mm: float,
+        direction: tuple[float, float, float],
+        z_mm: float,
+        name: str,
+    ) -> MeshSolid:
+        cq = _cq()
+        start = (direction[0] * start_radius_mm, direction[1] * start_radius_mm, z_mm)
+        shape = cq.Solid.makeCylinder(radius_mm, length_mm, pnt=start, dir=direction)
+        return MeshSolid(cq.Workplane("XY").add(shape), name, {"radius_mm": radius_mm, "height_mm": length_mm})
 
     @staticmethod
     def _bolt_count(radius_mm: float) -> int:
