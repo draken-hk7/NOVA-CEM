@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
+import shutil
 import struct
 from datetime import datetime
 from pathlib import Path
@@ -22,11 +24,21 @@ from nova.modules.nova_rp import NovaRP
 DEFAULT_CLI_MESH_TOLERANCE_MM = 0.5
 FAST_CLI_MESH_TOLERANCE_MM = 1.0
 HX_ASSEMBLY_OFFSET_MM = 150.0
+CLI_JOB_TYPES = ("rocket", "hx", "actuator", "assembly")
+CLI_JOB_DATE_RE = re.compile(r"(?P<date>\d{4}-\d{2}-\d{2}_\d{4})(?:_\d{2})?$")
 
 
 class StlTriangle(NamedTuple):
     normal: tuple[float, float, float]
     vertices: tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]
+
+
+class CliJob(NamedTuple):
+    path: Path
+    module_type: str
+    created_at: datetime
+    size_bytes: int
+    file_count: int
 
 
 def parse_quantity(value: str, unit: str) -> float:
@@ -118,6 +130,12 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("stl_file")
     validate.add_argument("--process", default="lpbf")
     validate.add_argument("--material", default="copper")
+
+    clean = sub.add_parser("clean", help="List and prune generated CLI output jobs.")
+    clean.add_argument("--output-dir", default="outputs/cli", help="CLI output directory to inspect.")
+    clean.add_argument("--keep", type=int, default=5, help="Keep N most recent jobs of each module type.")
+    clean.add_argument("--dry-run", action="store_true", help="Show what would be deleted without deleting files.")
+    clean.add_argument("--all", action="store_true", help="Delete every job and loose file in the CLI output directory.")
     return parser
 
 
@@ -141,6 +159,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "assemble":
         return _assemble_jobs(args)
+    if args.command == "clean":
+        return _clean_outputs(args)
     if args.command == "validate":
         exists = Path(args.stl_file).exists()
         print(json.dumps({"stl_file": args.stl_file, "exists": exists, "process": args.process, "material": args.material}))
@@ -331,6 +351,165 @@ def _assembly_output_path(args: argparse.Namespace) -> Path:
     stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
     output_dir = _unique_output_dir(Path(args.output_dir), f"assembly_{stamp}")
     return output_dir / "assembly.stl"
+
+
+def _clean_outputs(args: argparse.Namespace) -> int:
+    if args.keep < 0:
+        raise ValueError("--keep must be zero or greater")
+    output_dir = Path(args.output_dir)
+    jobs = _list_cli_jobs(output_dir)
+    loose_files = _list_cli_loose_files(output_dir)
+    if args.all:
+        to_delete_jobs = jobs
+        to_delete_files = loose_files
+    else:
+        to_delete_jobs = _prunable_jobs(jobs, args.keep)
+        to_delete_files = []
+
+    job_summaries = [_job_summary(job) for job in jobs]
+    to_delete_job_summaries = [_job_summary(job) for job in to_delete_jobs]
+    loose_file_summaries = [_file_summary(path) for path in loose_files]
+    to_delete_file_summaries = [_file_summary(path) for path in to_delete_files]
+    deleted_jobs: list[CliJob] = []
+    deleted_file_summaries: list[dict] = []
+    if not args.dry_run:
+        for job in to_delete_jobs:
+            _delete_child_path(job.path, output_dir)
+            deleted_jobs.append(job)
+        for file_path, file_summary in zip(to_delete_files, to_delete_file_summaries):
+            _delete_child_path(file_path, output_dir)
+            deleted_file_summaries.append(file_summary)
+
+    payload = {
+        "output_dir": str(output_dir),
+        "dry_run": bool(args.dry_run),
+        "all": bool(args.all),
+        "keep": None if args.all else args.keep,
+        "jobs": job_summaries,
+        "would_delete": to_delete_job_summaries,
+        "deleted": [_job_summary(job) for job in deleted_jobs],
+        "loose_files": loose_file_summaries,
+        "would_delete_files": to_delete_file_summaries,
+        "deleted_files": deleted_file_summaries,
+        "deleted_count": len(deleted_jobs) + len(deleted_file_summaries),
+        "would_delete_count": len(to_delete_jobs) + len(to_delete_files),
+        "summary": _clean_summary(jobs, to_delete_jobs),
+    }
+    print(json.dumps(payload))
+    return 0
+
+
+def _list_cli_jobs(output_dir: Path) -> list[CliJob]:
+    if not output_dir.exists():
+        return []
+    jobs = []
+    for child in output_dir.iterdir():
+        if child.is_dir():
+            jobs.append(
+                CliJob(
+                    path=child,
+                    module_type=_classify_cli_job(child),
+                    created_at=_job_datetime(child),
+                    size_bytes=_directory_size(child),
+                    file_count=_directory_file_count(child),
+                )
+            )
+    return sorted(jobs, key=lambda job: (job.created_at, job.path.name), reverse=True)
+
+
+def _list_cli_loose_files(output_dir: Path) -> list[Path]:
+    if not output_dir.exists():
+        return []
+    return sorted((child for child in output_dir.iterdir() if child.is_file()), key=lambda path: path.name)
+
+
+def _prunable_jobs(jobs: list[CliJob], keep: int) -> list[CliJob]:
+    prunable: list[CliJob] = []
+    for module_type in CLI_JOB_TYPES:
+        module_jobs = [job for job in jobs if job.module_type == module_type]
+        module_jobs.sort(key=lambda job: (job.created_at, job.path.name), reverse=True)
+        prunable.extend(module_jobs[keep:])
+    return sorted(prunable, key=lambda job: (job.module_type, job.created_at, job.path.name))
+
+
+def _classify_cli_job(job_dir: Path) -> str:
+    data = _read_job_data(job_dir)
+    module = str(data.get("module", "")).lower()
+    if module == "rocket-engine":
+        return "rocket"
+    if module == "heat-exchanger":
+        return "hx"
+    if module == "actuator":
+        return "actuator"
+    name = job_dir.name.lower()
+    if name.startswith("hx_"):
+        return "hx"
+    if name.startswith("actuator_"):
+        return "actuator"
+    if name.startswith("assembly_"):
+        return "assembly"
+    if name.startswith(("kerolox_", "methalox_", "hydrolox_", "hypergolic_", "solid_")):
+        return "rocket"
+    return "unknown"
+
+
+def _job_datetime(job_dir: Path) -> datetime:
+    match = CLI_JOB_DATE_RE.search(job_dir.name)
+    if match:
+        try:
+            return datetime.strptime(match.group("date"), "%Y-%m-%d_%H%M")
+        except ValueError:
+            pass
+    return datetime.fromtimestamp(job_dir.stat().st_mtime)
+
+
+def _directory_size(path: Path) -> int:
+    return sum(child.stat().st_size for child in path.rglob("*") if child.is_file())
+
+
+def _directory_file_count(path: Path) -> int:
+    return sum(1 for child in path.rglob("*") if child.is_file())
+
+
+def _job_summary(job: CliJob) -> dict:
+    return {
+        "job_id": job.path.name,
+        "path": str(job.path),
+        "module_type": job.module_type,
+        "date": job.created_at.isoformat(timespec="minutes"),
+        "size_bytes": job.size_bytes,
+        "size_mb": round(job.size_bytes / (1024.0 * 1024.0), 3),
+        "file_count": job.file_count,
+    }
+
+
+def _file_summary(path: Path) -> dict:
+    return {
+        "name": path.name,
+        "path": str(path),
+        "size_bytes": path.stat().st_size if path.exists() else 0,
+    }
+
+
+def _clean_summary(jobs: list[CliJob], to_delete: list[CliJob]) -> dict:
+    return {
+        module_type: {
+            "jobs": sum(1 for job in jobs if job.module_type == module_type),
+            "would_delete": sum(1 for job in to_delete if job.module_type == module_type),
+        }
+        for module_type in (*CLI_JOB_TYPES, "unknown")
+    }
+
+
+def _delete_child_path(target: Path, output_dir: Path) -> None:
+    root = output_dir.resolve()
+    resolved = target.resolve()
+    if resolved == root or root not in resolved.parents:
+        raise ValueError(f"Refusing to delete outside output directory: {target}")
+    if resolved.is_dir():
+        shutil.rmtree(resolved)
+    elif resolved.exists():
+        resolved.unlink()
 
 
 def _resolve_job_dir(job_id_or_path: str) -> Path:

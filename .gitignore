@@ -4,5 +4,9 @@ __pycache__/
 pytest-cache-files-*/
 pytest-tmp/
 outputs/
+/outputs/
+/assembly.stl
+/assembly.pdf
+/*.stl
+/*.pdf
 nova/feedback/db/
-
