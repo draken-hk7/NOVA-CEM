@@ -105,6 +105,7 @@ class HeatExchangerGeometry:
                 )
         if cut_tools:
             core = core.cut(cq.Workplane("XY").add(cq.Compound.makeCompound(cut_tools)))
+        core = self._add_industrial_features(core, bounds)
         result = MeshSolid(core, "gyroid_crossflow_heat_exchanger")
         result.metadata.update(
             {
@@ -118,10 +119,133 @@ class HeatExchangerGeometry:
                 "hot_flow_region": {"axis": "X", "channel_count": len(hot_z) * len(hot_y)},
                 "cold_flow_region": {"axis": "Y", "channel_count": len(cold_z) * len(cold_x)},
                 "channel_pitch_mm": pitch_mm,
+                "manifold_headers": {
+                    "hot_inlet": {
+                        "face": "-X",
+                        "stub_diameter_mm": 15.0,
+                        "stub_length_mm": 20.0,
+                        "flow_axis": "X",
+                    },
+                    "hot_outlet": {
+                        "face": "+X",
+                        "stub_diameter_mm": 15.0,
+                        "stub_length_mm": 20.0,
+                        "flow_axis": "X",
+                    },
+                    "cold_inlet": {
+                        "face": "-Y",
+                        "stub_diameter_mm": 15.0,
+                        "stub_length_mm": 20.0,
+                        "flow_axis": "Y",
+                    },
+                    "cold_outlet": {
+                        "face": "+Y",
+                        "stub_diameter_mm": 15.0,
+                        "stub_length_mm": 20.0,
+                        "flow_axis": "Y",
+                    },
+                },
+                "mounting_brackets": {
+                    "count": 2,
+                    "type": "L-shaped side flange",
+                    "bolt_hole_count": 4,
+                    "bolt_hole_diameter_mm": 5.0,
+                },
                 "tpms_note": "CadQuery fallback: dense cross-flow microchannel core with separated hot/cold passages.",
             }
         )
         return result
+
+    def _add_industrial_features(self, core, bounds: tuple[float, float, float]):
+        x, y, z = bounds
+        cq = _cq()
+        header_depth_mm = 6.0
+        header_overlap_mm = 1.0
+        stub_dia_mm = 15.0
+        stub_radius_mm = stub_dia_mm / 2.0
+        stub_length_mm = 20.0
+        stub_overlap_mm = 2.0
+        header_z_span = max(24.0, z * 0.72)
+        header_y_span = max(24.0, y * 0.82)
+        header_x_span = max(24.0, x * 0.82)
+        hot_stub_z = min(z * 0.24, z / 2.0 - stub_radius_mm - 1.0)
+        cold_stub_z = -hot_stub_z
+
+        components = []
+        for sign in (-1.0, 1.0):
+            x_center = sign * (x / 2.0 + header_depth_mm / 2.0 - header_overlap_mm)
+            components.append(cq.Workplane("XY").box(header_depth_mm, header_y_span, header_z_span).translate((x_center, 0.0, 0.0)))
+            pipe_start_x = sign * (x / 2.0 + header_depth_mm - stub_overlap_mm)
+            components.append(
+                cq.Workplane("XY").add(
+                    cq.Solid.makeCylinder(
+                        stub_radius_mm,
+                        stub_length_mm + stub_overlap_mm,
+                        pnt=(pipe_start_x, 0.0, hot_stub_z),
+                        dir=(sign, 0.0, 0.0),
+                    )
+                )
+            )
+
+            y_center = sign * (y / 2.0 + header_depth_mm / 2.0 - header_overlap_mm)
+            components.append(cq.Workplane("XY").box(header_x_span, header_depth_mm, header_z_span).translate((0.0, y_center, 0.0)))
+            pipe_start_y = sign * (y / 2.0 + header_depth_mm - stub_overlap_mm)
+            components.append(
+                cq.Workplane("XY").add(
+                    cq.Solid.makeCylinder(
+                        stub_radius_mm,
+                        stub_length_mm + stub_overlap_mm,
+                        pnt=(0.0, pipe_start_y, cold_stub_z),
+                        dir=(0.0, sign, 0.0),
+                    )
+                )
+            )
+            components.append(self._mounting_bracket(sign, x, y, z, header_depth_mm))
+
+        result = core
+        for component in components:
+            result = result.union(component)
+        return result
+
+    def _mounting_bracket(self, side_sign: float, x: float, y: float, z: float, header_depth_mm: float):
+        cq = _cq()
+        bracket_width_mm = min(34.0, max(24.0, x * 0.42))
+        leg_depth_mm = 5.0
+        leg_height_mm = 18.0
+        foot_depth_mm = 18.0
+        foot_thickness_mm = 5.0
+        overlap_mm = 1.0
+        bolt_dia_mm = 5.0
+        side_y = side_sign * (y / 2.0 + header_depth_mm)
+        leg = (
+            cq.Workplane("XY")
+            .box(bracket_width_mm, leg_depth_mm, leg_height_mm)
+            .translate((0.0, side_y + side_sign * (leg_depth_mm / 2.0 - overlap_mm), -z / 2.0 + leg_height_mm / 2.0 - overlap_mm))
+        )
+        foot = (
+            cq.Workplane("XY")
+            .box(bracket_width_mm + 6.0, foot_depth_mm, foot_thickness_mm)
+            .translate(
+                (
+                    0.0,
+                    side_y + side_sign * (foot_depth_mm / 2.0 - overlap_mm),
+                    -z / 2.0 - foot_thickness_mm / 2.0 + overlap_mm,
+                )
+            )
+        )
+        bracket = leg.union(foot)
+        hole_y = side_y + side_sign * (foot_depth_mm * 0.55)
+        hole_z_start = -z / 2.0 - foot_thickness_mm - 1.5
+        holes = [
+            cq.Solid.makeCylinder(
+                bolt_dia_mm / 2.0,
+                foot_thickness_mm + 4.0,
+                pnt=(x_pos, hole_y, hole_z_start),
+                dir=(0.0, 0.0, 1.0),
+            )
+            for x_pos in (-bracket_width_mm * 0.28, bracket_width_mm * 0.28)
+        ]
+        return bracket.cut(cq.Workplane("XY").add(cq.Compound.makeCompound(holes)))
 
     @staticmethod
     def _centered_positions(span_mm: float, margin_mm: float, pitch_mm: float) -> list[float]:

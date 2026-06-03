@@ -33,6 +33,11 @@ def test_nova_hx_design_generates_gyroid_geometry_and_report():
     assert result.geometry.metadata["geometry_type"] == "gyroid_crossflow_microchannel_fallback"
     assert result.geometry.metadata["hot_flow_region"]["channel_count"] > 0
     assert result.geometry.metadata["cold_flow_region"]["channel_count"] > 0
+    assert set(result.geometry.metadata["manifold_headers"]) == {"hot_inlet", "hot_outlet", "cold_inlet", "cold_outlet"}
+    assert result.geometry.metadata["manifold_headers"]["hot_inlet"]["stub_diameter_mm"] == 15.0
+    assert result.geometry.metadata["manifold_headers"]["cold_outlet"]["stub_length_mm"] == 20.0
+    assert result.geometry.metadata["mounting_brackets"]["count"] == 2
+    assert result.geometry.metadata["mounting_brackets"]["bolt_hole_count"] == 4
     assert result.performance.effectiveness > 0.0
     assert result.performance.ntu > 0.0
     assert result.performance.required_area_m2 > 0.0
