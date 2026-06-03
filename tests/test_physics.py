@@ -82,6 +82,26 @@ def test_heat_exchanger_lmtd_counterflow_known_case():
     assert lmtd == pytest.approx(expected)
 
 
+def test_heat_exchanger_ntu_design_returns_area_and_flows():
+    result = HeatExchangerSolver().design_ntu_effectiveness(
+        hot_fluid="exhaust",
+        cold_fluid="hydrogen",
+        duty_kW=10.0,
+        hot_inlet_temp_C=800.0,
+        hot_outlet_temp_C=200.0,
+        cold_inlet_temp_C=20.0,
+        max_pressure_bar=1.0,
+        material="inconel",
+    )
+
+    assert result.effectiveness == pytest.approx(600.0 / 780.0)
+    assert result.ntu > 3.0
+    assert result.required_area_m2 > 0.1
+    assert result.hot_mass_flow_kg_s > 0.0
+    assert result.cold_mass_flow_kg_s > 0.0
+    assert result.pressure_drop_bar <= 1.0
+
+
 def test_em_solver_copper_loss_and_back_emf():
     solver = EMSolver()
     assert solver.copper_loss(0.2, 10.0) == pytest.approx(20.0)

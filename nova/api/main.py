@@ -59,10 +59,18 @@ async def design_heat_exchanger(spec: HeatExchangerSpec) -> HXDesignResponse:
         design = NovaHX().design(spec)
         exporter = GeometryExporter()
         stl = job_dir / "heat_exchanger.stl"
+        step = job_dir / "heat_exchanger.step"
+        report = job_dir / "report.pdf"
+        data = job_dir / "data.json"
         exporter.to_stl(design.geometry, str(stl))
-        files = {"stl": str(stl)}
+        exporter.to_step(design.geometry, str(step))
+        run = CEMRunResult(job_id=job_id, module="heat-exchanger", inputs=spec.model_dump(), design=design)
+        reporter = PerformanceReporter()
+        reporter.generate_pdf_report(run, str(report))
+        data.write_text(__import__("json").dumps(reporter.generate_json_data(run), indent=2), encoding="utf-8")
+        files = {"stl": str(stl), "step": str(step), "report": str(report), "json": str(data)}
         JOBS[job_id].update({"status": "completed", "files": files, "design": design})
-        return HXDesignResponse(job_id=job_id, status="completed", performance=to_jsonable(design), files=files)
+        return HXDesignResponse(job_id=job_id, status="completed", performance=to_jsonable(design.performance), files=files)
     except Exception as exc:
         JOBS[job_id].update({"status": "failed", "detail": str(exc)})
         raise HTTPException(status_code=400, detail=str(exc)) from exc

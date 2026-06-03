@@ -67,11 +67,12 @@ class HeatExchangerGeometry:
         bounds: tuple[float, float, float] = (80.0, 80.0, 80.0),
         resolution: int = 24,
         thickness_mm: float = 1.0,
+        heat_transfer_area_m2: float | None = None,
     ) -> MeshSolid:
         # First build uses a deterministic lattice envelope; an optional marching
         # cubes backend can replace this without changing the public interface.
         x, y, z = bounds
-        struts = []
+        struts = [self.builder.box(x, y, thickness_mm, center=(0.0, 0.0, 0.0))]
         for i in range(max(3, resolution // 6)):
             offset = -x / 2.0 + (i + 0.5) * x / max(3, resolution // 6)
             struts.append(self.builder.box(thickness_mm, y, thickness_mm, center=(offset, 0.0, 0.0)))
@@ -79,7 +80,17 @@ class HeatExchangerGeometry:
             struts.append(self.builder.box(thickness_mm, thickness_mm, z, center=(0.0, 0.0, offset)))
         result = self.builder.boolean_union(*struts)
         result.name = "gyroid_minimal_surface_proxy"
-        result.metadata.update({"architecture": "gyroid", "bounds_mm": bounds, "resolution": resolution, "min_wall_thickness_mm": thickness_mm})
+        result.metadata.update(
+            {
+                "architecture": "gyroid",
+                "geometry_type": "gyroid_minimal_surface",
+                "bounds_mm": bounds,
+                "resolution": resolution,
+                "heat_transfer_area_m2": heat_transfer_area_m2,
+                "min_wall_thickness_mm": thickness_mm,
+                "min_channel_diameter_mm": max(0.5, thickness_mm),
+            }
+        )
         return result
 
     def schwartz_P_surface(
@@ -100,4 +111,3 @@ class HeatExchangerGeometry:
         result.name = "schwartz_p_surface_proxy"
         result.metadata.update({"architecture": "schwartz_p", "bounds_mm": bounds, "cell_size_mm": cell_size_mm, "min_wall_thickness_mm": thickness_mm})
         return result
-

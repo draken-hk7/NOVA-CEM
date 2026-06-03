@@ -7,10 +7,11 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from nova.core.input_schema import HotFireTestResult, RocketEngineSpec
+from nova.core.input_schema import HeatExchangerSpec, HotFireTestResult, RocketEngineSpec
 from nova.core.output import GeometryExporter, PerformanceReporter
 from nova.core.types import CEMRunResult, ProcessParams
 from nova.feedback import FeedbackIngester
+from nova.modules.nova_hx import NovaHX
 from nova.modules.nova_rp import NovaRP
 
 
@@ -63,6 +64,18 @@ def build_parser() -> argparse.ArgumentParser:
     rocket.add_argument("--output-dir", default="outputs/cli")
     rocket.add_argument("--fast", action="store_true", help="Generate a coarse 4-channel, 1 mm mesh preview.")
 
+    hx = design_sub.add_parser("heat-exchanger")
+    hx.add_argument("--duty", type=float, required=True, help="Heat duty in kW.")
+    hx.add_argument("--hot-fluid", required=True, choices=["air", "exhaust", "water"])
+    hx.add_argument("--cold-fluid", required=True, choices=["hydrogen", "water", "helium"])
+    hx.add_argument("--hot-inlet", type=float, required=True, help="Hot inlet temperature in C.")
+    hx.add_argument("--hot-outlet", type=float, required=True, help="Hot outlet temperature in C.")
+    hx.add_argument("--cold-inlet", type=float, required=True, help="Cold inlet temperature in C.")
+    hx.add_argument("--max-pressure", type=float, default=1.0, help="Maximum pressure drop in bar.")
+    hx.add_argument("--material", default="inconel", choices=["inconel", "steel", "copper"])
+    hx.add_argument("--process", default="lpbf", choices=["lpbf", "ebm", "directed_energy", "machined"])
+    hx.add_argument("--output-dir", default="outputs/cli")
+
     export = sub.add_parser("export")
     export.add_argument("job_id")
     export.add_argument("--format", nargs="+", default=["stl", "step", "report"])
@@ -84,6 +97,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "design" and args.design_type == "rocket-engine":
         return _design_rocket(args)
+    if args.command == "design" and args.design_type == "heat-exchanger":
+        return _design_heat_exchanger(args)
     if args.command == "feedback" and args.feedback_command == "ingest":
         payload = json.loads(Path(args.test_data).read_text(encoding="utf-8"))
         FeedbackIngester().ingest_hot_fire_data(HotFireTestResult(**payload))
@@ -142,6 +157,53 @@ def _design_rocket(args: argparse.Namespace) -> int:
                 "report": str(report),
                 "mesh_tolerance_mm": mesh_tolerance_mm,
                 "cooling_channels": design.metadata["nozzle"].get("n_cooling_channels"),
+            }
+        )
+    )
+    return 0
+
+
+def _design_heat_exchanger(args: argparse.Namespace) -> int:
+    spec = HeatExchangerSpec(
+        hot_fluid=args.hot_fluid,
+        cold_fluid=args.cold_fluid,
+        duty_kW=args.duty,
+        hot_inlet_temp_C=args.hot_inlet,
+        hot_outlet_temp_C=args.hot_outlet,
+        cold_inlet_temp_C=args.cold_inlet,
+        max_pressure_bar=args.max_pressure,
+        material=args.material,
+        manufacturing_process=args.process,
+    )
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    output_name = f"hx_{spec.hot_fluid}_{spec.cold_fluid}_{_format_number_token(spec.duty_kW)}kW_{stamp}"
+    output_dir = _unique_output_dir(Path(args.output_dir), output_name)
+    output_dir.mkdir(parents=True, exist_ok=False)
+    job_id = output_dir.name
+    design = NovaHX().design(spec)
+    exporter = GeometryExporter()
+    reporter = PerformanceReporter()
+    stl = output_dir / "heat_exchanger.stl"
+    step = output_dir / "heat_exchanger.step"
+    report = output_dir / "report.pdf"
+    data = output_dir / "data.json"
+    exporter.to_stl(design.geometry, str(stl), tolerance=FAST_CLI_MESH_TOLERANCE_MM)
+    exporter.to_step(design.geometry, str(step))
+    run = CEMRunResult(job_id=job_id, module="heat-exchanger", inputs=spec.model_dump(), design=design)
+    reporter.generate_pdf_report(run, str(report))
+    data.write_text(json.dumps(reporter.generate_json_data(run), indent=2), encoding="utf-8")
+    print(
+        json.dumps(
+            {
+                "job_id": job_id,
+                "output_dir": str(output_dir),
+                "stl": str(stl),
+                "step": str(step),
+                "report": str(report),
+                "effectiveness": design.performance.effectiveness,
+                "ntu": design.performance.ntu,
+                "required_area_m2": design.performance.required_area_m2,
+                "pressure_drop_bar": design.performance.pressure_drop_bar,
             }
         )
     )

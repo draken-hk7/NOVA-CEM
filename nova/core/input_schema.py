@@ -105,35 +105,40 @@ class RocketEngineSpec(EngineeringBaseModel):
 
 
 class HeatExchangerSpec(EngineeringBaseModel):
-    heat_duty_W: float = Field(..., gt=1.0, le=1.0e9, json_schema_extra=unit("W"))
-    hot_inlet_K: float = Field(..., gt=1.0, le=2500.0, json_schema_extra=unit("K"))
-    hot_outlet_K: float = Field(..., gt=1.0, le=2500.0, json_schema_extra=unit("K"))
-    cold_inlet_K: float = Field(..., gt=1.0, le=2500.0, json_schema_extra=unit("K"))
-    cold_outlet_K: float = Field(..., gt=1.0, le=2500.0, json_schema_extra=unit("K"))
-    hot_fluid: str = Field("water", min_length=1)
-    cold_fluid: str = Field("water", min_length=1)
-    max_pressure_drop_bar: float = Field(1.0, gt=0.0, le=1000.0, json_schema_extra=unit("bar"))
-    material: Literal["copper", "inconel", "inconel718", "titanium", "steel"] = "copper"
-    architecture: Literal["shell_and_tube", "plate_fin", "gyroid", "schwartz_p"] = "shell_and_tube"
+    hot_fluid: Literal["air", "exhaust", "water"]
+    cold_fluid: Literal["hydrogen", "water", "helium"]
+    duty_kW: float = Field(..., gt=0.001, le=1.0e6, json_schema_extra=unit("kW"))
+    hot_inlet_temp_C: float = Field(..., gt=-273.15, le=2500.0, json_schema_extra=unit("degC"))
+    hot_outlet_temp_C: float = Field(..., gt=-273.15, le=2500.0, json_schema_extra=unit("degC"))
+    cold_inlet_temp_C: float = Field(..., gt=-273.15, le=2500.0, json_schema_extra=unit("degC"))
+    max_pressure_bar: float = Field(1.0, gt=0.0, le=1000.0, json_schema_extra=unit("bar"))
+    material: Literal["copper", "inconel", "steel"] = "copper"
+    architecture: Literal["gyroid"] = "gyroid"
     manufacturing_process: Literal["lpbf", "ebm", "directed_energy", "machined"] = "lpbf"
 
     @model_validator(mode="after")
     def validate_heat_flow(self) -> "HeatExchangerSpec":
-        if self.hot_outlet_K >= self.hot_inlet_K:
+        if self.hot_outlet_temp_C >= self.hot_inlet_temp_C:
             raise PhysicsViolationError(
                 "Hot stream outlet must be cooler than inlet",
                 requirement="hot-side energy balance",
-                actual=self.hot_outlet_K,
-                limit=self.hot_inlet_K,
-                unit=" K",
+                actual=self.hot_outlet_temp_C,
+                limit=self.hot_inlet_temp_C,
+                unit=" degC",
             )
-        if self.cold_outlet_K <= self.cold_inlet_K:
+        if self.hot_outlet_temp_C <= self.cold_inlet_temp_C:
             raise PhysicsViolationError(
-                "Cold stream outlet must be warmer than inlet",
-                requirement="cold-side energy balance",
-                actual=self.cold_outlet_K,
-                limit=self.cold_inlet_K,
-                unit=" K",
+                "Hot outlet must remain warmer than cold inlet for counterflow heat exchange",
+                requirement="counterflow terminal temperature difference",
+                actual=self.hot_outlet_temp_C,
+                limit=self.cold_inlet_temp_C,
+                unit=" degC",
+            )
+        material = get_material_properties(self.material)
+        if self.manufacturing_process not in material["compatible_processes"]:
+            raise PhysicsViolationError(
+                f"{self.material} is not compatible with {self.manufacturing_process}",
+                requirement="material/process compatibility",
             )
         return self
 

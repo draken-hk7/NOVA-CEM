@@ -41,9 +41,10 @@ def test_rocket_spec_rejects_process_incompatibility():
 def test_heat_exchanger_rejects_invalid_temperature_direction():
     with pytest.raises(Exception):
         HeatExchangerSpec(
-            heat_duty_W=1000.0,
-            hot_inlet_K=350.0,
-            hot_outlet_K=360.0,
-            cold_inlet_K=290.0,
-            cold_outlet_K=310.0,
+            hot_fluid="exhaust",
+            cold_fluid="hydrogen",
+            duty_kW=10.0,
+            hot_inlet_temp_C=350.0,
+            hot_outlet_temp_C=360.0,
+            cold_inlet_temp_C=20.0,
         )
