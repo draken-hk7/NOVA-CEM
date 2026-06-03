@@ -102,7 +102,12 @@ def build_parser() -> argparse.ArgumentParser:
     assemble = sub.add_parser("assemble")
     assemble.add_argument("--engine", required=True, help="Rocket engine job id or output folder.")
     assemble.add_argument("--hx", required=True, help="Heat exchanger job id or output folder.")
-    assemble.add_argument("--output", required=True, help="Assembly STL output path.")
+    assemble.add_argument(
+        "--output",
+        default=None,
+        help="Assembly STL output path. Defaults to outputs/cli/assembly_YYYY-MM-DD_HHMM/assembly.stl.",
+    )
+    assemble.add_argument("--output-dir", default="outputs/cli", help="Base directory for default assembly outputs.")
 
     feedback = sub.add_parser("feedback")
     feedback_sub = feedback.add_subparsers(dest="feedback_command", required=True)
@@ -288,7 +293,7 @@ def _assemble_jobs(args: argparse.Namespace) -> int:
     hx_dir = _resolve_job_dir(args.hx)
     engine_stl = _find_stl(engine_dir, ("engine.stl",))
     hx_stl = _find_stl(hx_dir, ("heat_exchanger.stl", "hx.stl"))
-    output = Path(args.output)
+    output = _assembly_output_path(args)
     output.parent.mkdir(parents=True, exist_ok=True)
     engine_triangles = _read_stl_triangles(engine_stl)
     hx_triangles = _translate_triangles(_read_stl_triangles(hx_stl), (HX_ASSEMBLY_OFFSET_MM, 0.0, 0.0))
@@ -315,6 +320,14 @@ def _assemble_jobs(args: argparse.Namespace) -> int:
         )
     )
     return 0
+
+
+def _assembly_output_path(args: argparse.Namespace) -> Path:
+    if args.output:
+        return Path(args.output)
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    output_dir = _unique_output_dir(Path(args.output_dir), f"assembly_{stamp}")
+    return output_dir / "assembly.stl"
 
 
 def _resolve_job_dir(job_id_or_path: str) -> Path:

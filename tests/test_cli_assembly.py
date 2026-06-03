@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -70,6 +71,38 @@ def test_cli_assemble_exports_offset_multi_body_stl_and_pdf_report():
     assert report.exists() and report.stat().st_size > 0
     assert b"NOVA Assembly Report" in report.read_bytes()
     assert b"Heat exchanger offset: +150.0 mm X" in report.read_bytes()
+
+
+def test_cli_assemble_defaults_to_timestamped_outputs_folder(capsys):
+    base = Path("outputs/test-artifacts/assembly-cli-default")
+    engine_dir = base / "engine-job"
+    hx_dir = base / "hx-job"
+    engine_dir.mkdir(parents=True, exist_ok=True)
+    hx_dir.mkdir(parents=True, exist_ok=True)
+
+    _write_triangle_stl(
+        engine_dir / "engine.stl",
+        "engine",
+        ((0.0, 0.0, 0.0), (10.0, 0.0, 0.0), (0.0, 10.0, 0.0)),
+    )
+    _write_triangle_stl(
+        hx_dir / "heat_exchanger.stl",
+        "hx",
+        ((0.0, 0.0, 0.0), (5.0, 0.0, 0.0), (0.0, 5.0, 0.0)),
+    )
+
+    assert main(["assemble", "--engine", str(engine_dir), "--hx", str(hx_dir)]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    output = Path(payload["output"])
+    report = Path(payload["report"])
+
+    assert output.exists()
+    assert output.name == "assembly.stl"
+    assert output.parent.parent == Path("outputs/cli")
+    assert re.fullmatch(r"assembly_\d{4}-\d{2}-\d{2}_\d{4}(?:_\d{2})?", output.parent.name)
+    assert report == output.with_suffix(".pdf")
+    assert report.exists()
 
 
 def test_resolve_job_dir_returns_existing_absolute_directory():
