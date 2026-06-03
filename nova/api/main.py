@@ -105,14 +105,18 @@ def _export_design(job_id: str, module: str, inputs: dict, design: object, job_d
     threemf = job_dir / "engine.3mf"
     report = job_dir / "report.pdf"
     data = job_dir / "data.json"
-    exporter.to_stl(design.geometry, str(stl))
-    exporter.to_step(design.geometry, str(step))
-    exporter.to_obj(design.geometry, str(obj))
-    exporter.to_3mf(design.geometry, str(threemf))
+    files: dict[str, str] = {}
+    if getattr(design, "geometry", None) is not None:
+        exporter.to_stl(design.geometry, str(stl))
+        exporter.to_step(design.geometry, str(step))
+        exporter.to_obj(design.geometry, str(obj))
+        exporter.to_3mf(design.geometry, str(threemf))
+        files.update({"stl": str(stl), "step": str(step), "obj": str(obj), "3mf": str(threemf)})
     run = CEMRunResult(job_id=job_id, module=module, inputs=inputs, design=design)
     reporter.generate_pdf_report(run, str(report))
     data.write_text(__import__("json").dumps(reporter.generate_json_data(run), indent=2), encoding="utf-8")
-    return {"stl": str(stl), "step": str(step), "obj": str(obj), "3mf": str(threemf), "report": str(report), "json": str(data)}
+    files.update({"report": str(report), "json": str(data)})
+    return files
 
 
 def _file_for(job_id: str, kind: str) -> str:

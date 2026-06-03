@@ -71,7 +71,7 @@ async def design_engine(request: DashboardDesignRequest) -> dict:
             },
             "metrics": _metrics(design),
             "validation": _validation_results(design),
-            "files": _download_urls(job_id),
+            "files": _download_urls(job_id, files),
             "artifact_paths": files,
         }
         _prepend_history(record)
@@ -105,12 +105,16 @@ def _export_dashboard_artifacts(job_id: str, spec: RocketEngineSpec, design: obj
     report = job_dir / "report.pdf"
     data = job_dir / "data.json"
 
-    exporter.to_stl(design.geometry, str(stl))
-    exporter.to_step(design.geometry, str(step))
+    files: dict[str, str] = {}
+    if getattr(design, "geometry", None) is not None:
+        exporter.to_stl(design.geometry, str(stl))
+        exporter.to_step(design.geometry, str(step))
+        files.update({"stl": str(stl), "step": str(step)})
     run = CEMRunResult(job_id=job_id, module="rocket-engine", inputs=spec.model_dump(), design=design)
     reporter.generate_pdf_report(run, str(report))
     data.write_text(json.dumps(reporter.generate_json_data(run), indent=2), encoding="utf-8")
-    return {"stl": str(stl), "step": str(step), "report": str(report), "json": str(data)}
+    files.update({"report": str(report), "json": str(data)})
+    return files
 
 
 def _metrics(design: object) -> dict[str, float]:
@@ -123,12 +127,13 @@ def _metrics(design: object) -> dict[str, float]:
     }
 
 
-def _download_urls(job_id: str) -> dict[str, str]:
-    return {
-        "stl": f"/download/{job_id}/stl",
-        "step": f"/download/{job_id}/step",
-        "report": f"/download/{job_id}/report",
-    }
+def _download_urls(job_id: str, files: dict[str, str]) -> dict[str, str]:
+    urls = {"report": f"/download/{job_id}/report"}
+    if "stl" in files:
+        urls["stl"] = f"/download/{job_id}/stl"
+    if "step" in files:
+        urls["step"] = f"/download/{job_id}/step"
+    return urls
 
 
 def _public_record(record: dict) -> dict:

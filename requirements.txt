@@ -7,6 +7,5 @@ pydantic
 pandas
 reportlab
 cea
-cadquery
 python-multipart
 aiofiles

@@ -70,6 +70,13 @@ function renderValidation(validation) {
   }).join("");
 }
 
+function artifactLinks(files, labels) {
+  return Object.entries(labels)
+    .filter(([key]) => files?.[key])
+    .map(([key, label]) => `<a href="${files[key]}">${label}</a>`)
+    .join("");
+}
+
 function renderResults(job) {
   activeJobEl.textContent = job.job_id;
   resultCardsEl.innerHTML = metrics.map(([key, label, unit]) => {
@@ -85,11 +92,11 @@ function renderResults(job) {
   renderValidation(job.validation);
 
   downloadButtonsEl.classList.remove("muted");
-  downloadButtonsEl.innerHTML = `
-    <a href="${job.files.stl}">Download STL</a>
-    <a href="${job.files.step}">Download STEP</a>
-    <a href="${job.files.report}">Download PDF</a>
-  `;
+  downloadButtonsEl.innerHTML = artifactLinks(job.files, {
+    stl: "Download STL",
+    step: "Download STEP",
+    report: "Download PDF"
+  });
 }
 
 function renderHistory(jobs) {
@@ -110,11 +117,7 @@ function renderHistory(jobs) {
           <p class="history-meta">${p.propellant}, ${numberFormat.format(p.thrust_N)} N, ${numberFormat.format(p.chamber_pressure_bar)} bar, ${p.material}</p>
           <p class="history-metrics">Isp ${numberFormat.format(m.specific_impulse_s)} s, mass ${numberFormat.format(m.engine_mass_kg)} kg, print ${numberFormat.format(m.print_time_hours)} h</p>
         </div>
-        <div class="history-actions">
-          <a href="${job.files.stl}">STL</a>
-          <a href="${job.files.step}">STEP</a>
-          <a href="${job.files.report}">PDF</a>
-        </div>
+        <div class="history-actions">${artifactLinks(job.files, { stl: "STL", step: "STEP", report: "PDF" })}</div>
       </article>
     `;
   }).join("");
