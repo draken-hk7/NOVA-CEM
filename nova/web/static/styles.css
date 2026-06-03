@@ -79,7 +79,7 @@ h2 {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(260px, 340px) 1fr;
+  grid-template-columns: minmax(280px, 360px) 1fr;
   gap: 18px;
   align-items: start;
 }
@@ -105,9 +105,19 @@ h2 {
   padding: 18px;
 }
 
+.form-stack {
+  display: grid;
+  gap: 18px;
+}
+
 .design-form {
   display: grid;
   gap: 15px;
+}
+
+.results-panel {
+  position: sticky;
+  top: 18px;
 }
 
 label {
@@ -213,12 +223,12 @@ button.secondary:hover,
 
 .cards {
   display: grid;
-  grid-template-columns: repeat(5, minmax(118px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
   gap: 12px;
 }
 
 .metric-card {
-  min-height: 116px;
+  min-height: 108px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface-strong);
@@ -364,6 +374,7 @@ button.secondary:hover,
 .history-title {
   margin: 0 0 5px;
   font-weight: 800;
+  overflow-wrap: anywhere;
 }
 
 .history-meta,
@@ -400,8 +411,8 @@ button.secondary:hover,
     grid-template-columns: 1fr;
   }
 
-  .cards {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .results-panel {
+    position: static;
   }
 
   .history-item {

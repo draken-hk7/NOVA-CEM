@@ -11,53 +11,163 @@
       <header class="topbar">
         <div>
           <p class="eyebrow">NOVA-CEM</p>
-          <h1>Rocket Engine Dashboard</h1>
+          <h1>Design Dashboard</h1>
         </div>
         <div id="status" class="status" role="status">Ready</div>
       </header>
 
-      <section class="workspace" aria-label="Rocket engine design workspace">
-        <form id="design-form" class="panel design-form">
-          <div class="panel-heading">
-            <h2>Engine Parameters</h2>
-          </div>
-
-          <label>
-            <span>Propellant</span>
-            <select id="propellant" name="propellant">
-              <option value="kerolox">Kerolox</option>
-              <option value="methalox">Methalox</option>
-              <option value="hydrolox">Hydrolox</option>
-            </select>
-          </label>
-
-          <label>
-            <span>Thrust</span>
-            <div class="unit-input">
-              <input id="thrust_N" name="thrust_N" type="number" min="1" step="1" value="5000" required>
-              <span>N</span>
+      <section class="workspace" aria-label="NOVA design workspace">
+        <div class="form-stack">
+          <form id="engine-form" class="panel design-form">
+            <div class="panel-heading">
+              <h2>Rocket Engine</h2>
             </div>
-          </label>
 
-          <label>
-            <span>Chamber Pressure</span>
-            <div class="unit-input">
-              <input id="chamber_pressure_bar" name="chamber_pressure_bar" type="number" min="1" step="0.1" value="50" required>
-              <span>bar</span>
+            <label>
+              <span>Propellant</span>
+              <select id="engine_propellant" name="propellant">
+                <option value="kerolox">Kerolox</option>
+                <option value="methalox">Methalox</option>
+                <option value="hydrolox">Hydrolox</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Thrust</span>
+              <div class="unit-input">
+                <input id="engine_thrust_N" name="thrust_N" type="number" min="1" step="1" value="5000" required>
+                <span>N</span>
+              </div>
+            </label>
+
+            <label>
+              <span>Chamber Pressure</span>
+              <div class="unit-input">
+                <input id="engine_chamber_pressure_bar" name="chamber_pressure_bar" type="number" min="1" step="0.1" value="50" required>
+                <span>bar</span>
+              </div>
+            </label>
+
+            <label>
+              <span>Material</span>
+              <select id="engine_material" name="material">
+                <option value="inconel">Inconel</option>
+                <option value="copper">Copper</option>
+              </select>
+            </label>
+
+            <button id="engine-button" type="submit">Design Engine</button>
+          </form>
+
+          <form id="hx-form" class="panel design-form">
+            <div class="panel-heading">
+              <h2>Heat Exchanger</h2>
             </div>
-          </label>
 
-          <label>
-            <span>Material</span>
-            <select id="material" name="material">
-              <option value="inconel">Inconel</option>
-              <option value="copper">Copper</option>
-            </select>
-          </label>
+            <label>
+              <span>Hot Fluid</span>
+              <select id="hx_hot_fluid" name="hot_fluid">
+                <option value="exhaust">Exhaust</option>
+                <option value="air">Air</option>
+                <option value="water">Water</option>
+              </select>
+            </label>
 
-          <button id="design-button" type="submit">Design Engine</button>
+            <label>
+              <span>Cold Fluid</span>
+              <select id="hx_cold_fluid" name="cold_fluid">
+                <option value="hydrogen">Hydrogen</option>
+                <option value="water">Water</option>
+                <option value="helium">Helium</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Duty</span>
+              <div class="unit-input">
+                <input id="hx_duty_kW" name="duty_kW" type="number" min="0.001" step="0.1" value="10" required>
+                <span>kW</span>
+              </div>
+            </label>
+
+            <label>
+              <span>Hot Inlet Temp</span>
+              <div class="unit-input">
+                <input id="hx_hot_inlet_temp_C" name="hot_inlet_temp_C" type="number" step="1" value="800" required>
+                <span>C</span>
+              </div>
+            </label>
+
+            <label>
+              <span>Hot Outlet Temp</span>
+              <div class="unit-input">
+                <input id="hx_hot_outlet_temp_C" name="hot_outlet_temp_C" type="number" step="1" value="200" required>
+                <span>C</span>
+              </div>
+            </label>
+
+            <label>
+              <span>Cold Inlet Temp</span>
+              <div class="unit-input">
+                <input id="hx_cold_inlet_temp_C" name="cold_inlet_temp_C" type="number" step="1" value="20" required>
+                <span>C</span>
+              </div>
+            </label>
+
+            <button id="hx-button" type="submit">Design Heat Exchanger</button>
+          </form>
+
+          <form id="actuator-form" class="panel design-form">
+            <div class="panel-heading">
+              <h2>Actuator</h2>
+            </div>
+
+            <label>
+              <span>Force</span>
+              <div class="unit-input">
+                <input id="actuator_force_N" name="force_N" type="number" min="0.1" step="0.1" value="50" required>
+                <span>N</span>
+              </div>
+            </label>
+
+            <label>
+              <span>Stroke</span>
+              <div class="unit-input">
+                <input id="actuator_stroke_mm" name="stroke_mm" type="number" min="0.1" step="0.1" value="10" required>
+                <span>mm</span>
+              </div>
+            </label>
+
+            <label>
+              <span>Voltage</span>
+              <div class="unit-input">
+                <input id="actuator_voltage_V" name="voltage_V" type="number" min="0.1" step="0.1" value="24" required>
+                <span>V</span>
+              </div>
+            </label>
+
+            <label>
+              <span>Response Time</span>
+              <div class="unit-input">
+                <input id="actuator_response_time_ms" name="response_time_ms" type="number" min="0.1" step="1" value="50" required>
+                <span>ms</span>
+              </div>
+            </label>
+
+            <label>
+              <span>Material</span>
+              <select id="actuator_material" name="material">
+                <option value="steel">Steel</option>
+                <option value="inconel">Inconel</option>
+                <option value="aluminum">Aluminum</option>
+              </select>
+            </label>
+
+            <button id="actuator-button" type="submit">Design Actuator</button>
+          </form>
+
           <p id="error" class="error" hidden></p>
-        </form>
+        </div>
 
         <section class="panel results-panel" aria-live="polite">
           <div class="panel-heading">
@@ -93,7 +203,7 @@
           </div>
 
           <div class="validation">
-            <h2>Structural Validation</h2>
+            <h2>Validation</h2>
             <div id="validation-results" class="validation-results muted">No validation run</div>
           </div>
 
