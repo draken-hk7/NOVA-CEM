@@ -85,6 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
     rocket.add_argument("--process", default="lpbf", choices=["lpbf", "ebm", "directed_energy", "machined"])
     rocket.add_argument("--output-dir", default="outputs/cli")
     rocket.add_argument("--fast", action="store_true", help="Generate a coarse 4-channel, 1 mm mesh preview.")
+    rocket.add_argument("--export-cfd", action="store_true", help="Export internal-flow CFD .msh and boundary conditions.")
 
     hx = design_sub.add_parser("heat-exchanger")
     hx.add_argument("--duty", type=float, required=True, help="Heat duty in kW.")
@@ -192,12 +193,16 @@ def _design_rocket(args: argparse.Namespace) -> int:
     stl = output_dir / "engine.stl"
     step = output_dir / "engine.step"
     obj = output_dir / "engine.obj"
+    cfd_mesh = output_dir / "engine_internal_flow.msh"
+    boundary_conditions = output_dir / "boundary_conditions.txt"
     report = output_dir / "report.pdf"
     data = output_dir / "data.json"
     exporter.to_stl(design.geometry, str(stl), tolerance=mesh_tolerance_mm)
     exporter.to_step(design.geometry, str(step))
     exporter.to_obj(design.geometry, str(obj), tolerance=mesh_tolerance_mm)
     files = {"stl": str(stl), "step": str(step), "obj": str(obj)}
+    if args.export_cfd:
+        files.update(exporter.to_cfd_mesh(design, str(cfd_mesh), boundary_conditions_path=str(boundary_conditions)))
     run = CEMRunResult(job_id=job_id, module="rocket-engine", inputs=spec.model_dump(), design=design, files=files)
     reporter.generate_pdf_report(run, str(report))
     data.write_text(json.dumps(reporter.generate_json_data(run), indent=2), encoding="utf-8")
@@ -211,6 +216,8 @@ def _design_rocket(args: argparse.Namespace) -> int:
                 "step": str(step),
                 "report": str(report),
                 "thermal_map": files.get("thermal_map"),
+                "cfd_mesh": files.get("cfd_mesh"),
+                "boundary_conditions": files.get("boundary_conditions"),
                 "mesh_tolerance_mm": mesh_tolerance_mm,
                 "cooling_channels": design.metadata["nozzle"].get("n_cooling_channels"),
             }
