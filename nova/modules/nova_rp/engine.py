@@ -125,6 +125,7 @@ class NovaRP:
             manifold_thickness_mm=max(6.0, wall_thickness_mm * 2.2),
             outer_radius_mm=float(nozzle_geo.metadata.get("injector_flange_outer_radius_mm", chamber_radius_mm)),
         )
+        manifold_metadata = injector.metadata.get("propellant_manifold", {})
 
         full_engine = self._assemble(nozzle_geo.solid, injector.solid)
         mfg = ManufacturabilityEnforcer(spec.manufacturing_process, spec.material)
@@ -138,9 +139,23 @@ class NovaRP:
                 "chamber_wall_thickness_mm": wall_thickness_mm,
                 "actual_chamber_wall_thickness_mm": wall_thickness_mm,
                 "cooling_channel_wall_mm": nozzle_geo.channels.wall_thickness_mm,
+                "propellant_manifold": manifold_metadata,
+                "manifold_wall_thickness_mm": float(
+                    manifold_metadata.get(
+                        "min_wall_thickness_mm",
+                        final_geometry.metadata.get("manifold_wall_thickness_mm", wall_thickness_mm),
+                    )
+                ),
+                "manifold_min_wall_thickness_mm": float(
+                    manifold_metadata.get(
+                        "required_min_wall_thickness_mm",
+                        final_geometry.metadata.get("manifold_min_wall_thickness_mm", 0.4),
+                    )
+                ),
                 "minimum_local_thickness_mm": min(
                     wall_thickness_mm,
                     nozzle_geo.channels.wall_thickness_mm,
+                    float(manifold_metadata.get("min_wall_thickness_mm", wall_thickness_mm)),
                     float(final_geometry.metadata.get("min_wall_thickness_mm", wall_thickness_mm)),
                 ),
             }
@@ -171,7 +186,7 @@ class NovaRP:
             mass_kg=final_geometry.mass_properties.mass,
             injector=injector,
             trace=trace,
-            metadata={"combustion": combustion, "nozzle": nozzle_geo.metadata},
+            metadata={"combustion": combustion, "nozzle": nozzle_geo.metadata, "injector": injector.metadata, "manifold": manifold_metadata},
             validation=validation,
         )
 

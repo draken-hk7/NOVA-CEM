@@ -27,6 +27,7 @@ def test_validator_passes_compliant_lpbf_engine_wall():
         "Minimum wall thickness",
         "Pressure vessel wall",
         "Cooling channel wall",
+        "Propellant manifold wall",
     ]
 
 
@@ -36,6 +37,23 @@ def test_validator_flags_thin_lpbf_and_cooling_walls():
     failed = {check.name for check in result.checks if not check.passed}
     assert not result.passed
     assert failed == {"Minimum wall thickness", "Cooling channel wall"}
+
+
+def test_validator_flags_thin_propellant_manifold_wall():
+    solid = _annotated_annular_wall(1.0)
+    solid.metadata.update(
+        {
+            "propellant_manifold": {"min_wall_thickness_mm": 0.25, "required_min_wall_thickness_mm": 0.4},
+            "manifold_wall_thickness_mm": 0.25,
+            "manifold_min_wall_thickness_mm": 0.4,
+        }
+    )
+
+    result = ManufacturingValidator().validate(solid)
+
+    failed = {check.name for check in result.checks if not check.passed}
+    assert not result.passed
+    assert failed == {"Propellant manifold wall"}
 
 
 def test_stl_export_validator_warns_on_failed_checks():

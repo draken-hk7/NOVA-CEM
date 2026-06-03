@@ -3,7 +3,7 @@ import math
 import pytest
 
 from nova.core.geometry_engine.primitives import GeometryBuilder
-from nova.core.geometry_engine.rocket_geometry import RocketNozzleGeometry
+from nova.core.geometry_engine.rocket_geometry import InjectorHeadGeometry, RocketNozzleGeometry
 
 
 def test_cylinder_is_watertight_and_volume_matches_analytic():
@@ -28,3 +28,25 @@ def test_revolved_bell_nozzle_is_watertight():
     assert set(result.metadata["coolant_ports"]) == {"inlet", "outlet"}
     assert result.metadata["coolant_ports"]["inlet"]["diameter_mm"] == pytest.approx(8.0)
     assert result.metadata["coolant_ports"]["outlet"]["thread_spec"] == "M8x1.25 standard"
+
+
+def test_injector_with_propellant_manifold_is_single_watertight_solid():
+    result = InjectorHeadGeometry(segments=64).coaxial_swirler_injector(
+        n_elements=19,
+        element_pitch_mm=3.0,
+        oxidizer_post_dia_mm=0.8,
+        fuel_annulus_gap_mm=0.45,
+        manifold_thickness_mm=7.0,
+        outer_radius_mm=22.0,
+    )
+
+    manifold = result.metadata["propellant_manifold"]
+
+    assert result.solid.is_watertight
+    assert len(result.solid.shape.Solids()) == 1
+    assert manifold["oxidizer_manifold"]["shape"] == "toroidal"
+    assert manifold["oxidizer_manifold"]["feed_hole_count"] == 8
+    assert manifold["fuel_manifold"]["feed_passage_count"] == 8
+    assert manifold["ports"]["oxidizer_inlet"]["thread_spec"] == "M12x1.5 standard"
+    assert manifold["ports"]["fuel_inlet"]["diameter_mm"] == pytest.approx(10.0)
+    assert manifold["min_wall_thickness_mm"] >= manifold["required_min_wall_thickness_mm"]

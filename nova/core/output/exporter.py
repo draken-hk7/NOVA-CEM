@@ -91,6 +91,26 @@ class PerformanceReporter:
                     f"  {name}: diameter {port.get('diameter_mm')} mm, bore {port.get('bore_diameter_mm')} mm, "
                     f"thread {port.get('thread_spec')}, position [{position_text}] mm"
                 )
+        manifold = payload.get("design", {}).get("metadata", {}).get("manifold", {})
+        if manifold:
+            lines.extend(["", "Propellant Manifold:"])
+            oxidizer = manifold.get("oxidizer_manifold", {})
+            fuel = manifold.get("fuel_manifold", {})
+            lines.append(
+                f"  Oxidizer ring diameter: {oxidizer.get('diameter_mm')} mm, "
+                f"{oxidizer.get('feed_hole_count')} radial feed holes"
+            )
+            lines.append(
+                f"  Fuel manifold diameter: {fuel.get('diameter_mm')} mm, "
+                f"{fuel.get('feed_passage_count')} feed passages"
+            )
+            ports = manifold.get("ports", {})
+            for name, port in ports.items():
+                lines.append(
+                    f"  {name}: diameter {port.get('diameter_mm')} mm, "
+                    f"thread {port.get('thread_spec')}"
+                )
+            lines.append(f"  Total feed flow area: {manifold.get('flow_area_mm2')} mm^2")
         validation = payload.get("design", {}).get("validation")
         if validation:
             lines.extend(["", "Structural Validation:"])

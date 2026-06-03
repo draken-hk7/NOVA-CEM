@@ -6,6 +6,7 @@ import math
 
 import numpy as np
 
+from nova.core.geometry_engine.manifold_geometry import PropellantManifoldGeometry
 from nova.core.geometry_engine.primitives import GeometryBuilder, MeshSolid, _cq
 from nova.core.knowledge_engine.rules import RocketHeuristics
 from nova.core.types import ChannelGeometry, InjectorResult, RocketNozzleResult
@@ -376,6 +377,20 @@ class InjectorHeadGeometry:
                 "min_channel_diameter_mm": min(oxidizer_post_dia_mm, 2.0 * fuel_annulus_gap_mm),
             }
         )
+        manifold = PropellantManifoldGeometry().attach_to_injector(
+            disk,
+            injector_outer_radius_mm=radius,
+            injector_thickness_mm=manifold_thickness_mm,
+            element_positions_mm=element_positions,
+            oxidizer_post_dia_mm=oxidizer_post_dia_mm,
+            fuel_annulus_gap_mm=fuel_annulus_gap_mm,
+        )
+        disk = manifold.solid
+        disk.metadata["feature_trace"] = [
+            "injector element count -> coaxial swirler pattern",
+            "propellant routing -> toroidal oxidizer manifold and cylindrical fuel manifold",
+            "service connections -> threaded fuel and oxidizer inlet boss fittings",
+        ]
         return InjectorResult(disk, n_elements, disk.metadata)
 
     def impinging_injector(

@@ -17,6 +17,10 @@ def test_nova_rp_design_returns_geometry_performance_and_trace():
     result = NovaRP().design(spec)
     assert result.geometry.is_watertight
     assert len(result.geometry.shape.Solids()) == 1
+    assert result.geometry.metadata["propellant_manifold"]["oxidizer_manifold"]["feed_hole_count"] == 8
+    assert result.geometry.metadata["propellant_manifold"]["ports"]["oxidizer_inlet"]["thread_spec"] == "M12x1.5 standard"
+    assert result.geometry.metadata["propellant_manifold"]["ports"]["fuel_inlet"]["thread_spec"] == "M10x1.25 standard"
+    assert result.metadata["manifold"]["flow_area_mm2"] > 0.0
     assert set(result.metadata["nozzle"]["coolant_ports"]) == {"inlet", "outlet"}
     assert result.metadata["nozzle"]["coolant_ports"]["inlet"]["thread_spec"] == "M8x1.25 standard"
     assert result.metadata["nozzle"]["n_cooling_channels"] == 8
@@ -26,7 +30,8 @@ def test_nova_rp_design_returns_geometry_performance_and_trace():
     assert result.performance.specific_impulse_s > 250.0
     assert result.structural.passed
     assert result.validation.passed
-    assert len(result.validation.checks) == 3
+    assert len(result.validation.checks) == 4
+    assert any(check.name == "Propellant manifold wall" and check.passed for check in result.validation.checks)
     assert result.manufacturing.passed
     assert result.trace
 
@@ -44,6 +49,7 @@ def test_nova_rp_design_returns_geometry_performance_and_trace():
     assert step.exists() and step.stat().st_size > 0
     assert report.exists() and report.stat().st_size > 0
     assert b"Coolant Ports" in report.read_bytes()
+    assert b"Propellant Manifold" in report.read_bytes()
     assert b"Structural Validation" in report.read_bytes()
 
 

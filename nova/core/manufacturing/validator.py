@@ -15,6 +15,7 @@ from nova.core.knowledge_engine.rules import get_material_properties
 
 LPBF_MIN_WALL_THICKNESS_MM = 0.4
 MIN_COOLING_CHANNEL_WALL_MM = 0.5
+MIN_MANIFOLD_WALL_THICKNESS_MM = 0.4
 PRESSURE_VESSEL_SAFETY_FACTOR = 4.0
 
 
@@ -41,6 +42,7 @@ class ManufacturingValidator:
             self.minimum_wall_thickness_check(solid),
             self.pressure_vessel_check(solid),
             self.cooling_channel_wall_check(solid),
+            self.manifold_wall_thickness_check(solid),
         ]
         return ValidationResult(passed=all(check.passed for check in checks), checks=checks)
 
@@ -137,6 +139,43 @@ class ManufacturingValidator:
             message=(
                 f"Cooling-channel-to-bore wall is {actual:.3f} mm; "
                 f"minimum is {MIN_COOLING_CHANNEL_WALL_MM:.3f} mm."
+            ),
+        )
+
+    def manifold_wall_thickness_check(self, solid: MeshSolid) -> CheckResult:
+        metadata = solid.metadata
+        manifold = metadata.get("propellant_manifold", {})
+        if not isinstance(manifold, dict) or not manifold:
+            return CheckResult(
+                name="Propellant manifold wall",
+                passed=True,
+                actual_value=None,
+                minimum_value=MIN_MANIFOLD_WALL_THICKNESS_MM,
+                message="Propellant manifold wall check skipped; no manifold metadata was detected.",
+            )
+        actual = _first_float(metadata, "manifold_wall_thickness_mm", "manifold_min_wall_thickness_mm")
+        if actual is None:
+            actual = _first_float(manifold, "min_wall_thickness_mm")
+        minimum = _first_float(metadata, "manifold_min_wall_thickness_mm")
+        if minimum is None:
+            minimum = _first_float(manifold, "required_min_wall_thickness_mm") or MIN_MANIFOLD_WALL_THICKNESS_MM
+        if actual is None:
+            return CheckResult(
+                name="Propellant manifold wall",
+                passed=False,
+                actual_value=None,
+                minimum_value=minimum,
+                message="Propellant manifold wall check failed; wall thickness metadata is missing.",
+            )
+        passed = actual >= minimum
+        return CheckResult(
+            name="Propellant manifold wall",
+            passed=passed,
+            actual_value=actual,
+            minimum_value=minimum,
+            message=(
+                f"Propellant manifold wall is {actual:.3f} mm; "
+                f"minimum is {minimum:.3f} mm."
             ),
         )
 
