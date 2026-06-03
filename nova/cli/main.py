@@ -321,6 +321,13 @@ def _resolve_job_dir(job_id_or_path: str) -> Path:
     direct = Path(job_id_or_path)
     if direct.is_dir():
         return direct
+    is_short_job_id = (
+        bool(job_id_or_path)
+        and len(job_id_or_path) <= 160
+        and not direct.is_absolute()
+        and "/" not in job_id_or_path
+        and "\\" not in job_id_or_path
+    )
     candidates = [
         Path("outputs/cli") / job_id_or_path,
         Path("outputs/jobs") / job_id_or_path,
@@ -331,7 +338,7 @@ def _resolve_job_dir(job_id_or_path: str) -> Path:
         if candidate.is_dir():
             return candidate
     outputs = Path("outputs")
-    if outputs.exists():
+    if is_short_job_id and outputs.exists():
         for candidate in outputs.rglob(job_id_or_path):
             if candidate.is_dir():
                 return candidate

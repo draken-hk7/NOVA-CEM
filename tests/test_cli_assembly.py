@@ -1,7 +1,9 @@
 import json
 from pathlib import Path
 
-from nova.cli.main import _read_stl_triangles, main
+import pytest
+
+from nova.cli.main import _read_stl_triangles, _resolve_job_dir, main
 
 
 def _write_triangle_stl(path: Path, solid_name: str, vertices: tuple[tuple[float, float, float], ...]) -> None:
@@ -68,3 +70,17 @@ def test_cli_assemble_exports_offset_multi_body_stl_and_pdf_report():
     assert report.exists() and report.stat().st_size > 0
     assert b"NOVA Assembly Report" in report.read_bytes()
     assert b"Heat exchanger offset: +150.0 mm X" in report.read_bytes()
+
+
+def test_resolve_job_dir_returns_existing_absolute_directory():
+    job_dir = Path("outputs/test-artifacts/assembly-cli/absolute-engine-job")
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    assert _resolve_job_dir(str(job_dir.resolve())) == job_dir.resolve()
+
+
+def test_resolve_job_dir_does_not_glob_absolute_missing_paths():
+    missing = Path("outputs/test-artifacts/assembly-cli/missing-absolute-job-97531").resolve()
+
+    with pytest.raises(FileNotFoundError):
+        _resolve_job_dir(str(missing))
