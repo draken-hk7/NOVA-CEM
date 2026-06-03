@@ -41,6 +41,7 @@ class NovaRP:
         "methalox": 20.0,
         "hydrolox": 40.0,
     }
+    MIN_COOLING_CHANNEL_WALL_MM = 0.6
     GEOMETRY_DISABLED_VALUES = {"0", "false", "no", "off"}
 
     def design(self, spec: RocketEngineSpec, cooling_channel_count: int | None = None) -> EngineDesignResult:
@@ -195,7 +196,8 @@ class NovaRP:
         allowable_hoop_MPa = material["yield_strength_mpa"] / spec.safety_factor * 0.82
         pressure_wall = pressure_MPa * chamber_radius_mm / allowable_hoop_MPa
         thermal_margin = 0.35 if spec.cooling == "regenerative" else 0.9
-        return max(rules.MIN_WALL_THICKNESS_MM, pressure_wall + thermal_margin)
+        cooling_channel_wall = self.MIN_COOLING_CHANNEL_WALL_MM if spec.cooling == "regenerative" else 0.0
+        return max(rules.MIN_WALL_THICKNESS_MM, pressure_wall + thermal_margin, cooling_channel_wall)
 
     def _n_cooling_channels(
         self,

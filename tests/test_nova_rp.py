@@ -59,6 +59,22 @@ def test_nova_rp_cooling_channel_defaults_and_preview_override():
     assert rp._n_cooling_channels(spec, chamber_radius_mm=30.0, wall_thickness_mm=1.0, requested_count=4) == 4
 
 
+def test_regenerative_cooling_channel_wall_has_validator_margin(monkeypatch):
+    monkeypatch.setenv("NOVA_GEOMETRY_ENABLED", "false")
+    spec = RocketEngineSpec(
+        thrust_N=50.0,
+        chamber_pressure_bar=10.0,
+        propellant="kerolox",
+        material="copper",
+    )
+
+    result = NovaRP().design(spec)
+    cooling_check = next(check for check in result.validation.checks if check.name == "Cooling channel wall")
+
+    assert result.validation.passed
+    assert cooling_check.actual_value >= 0.6
+
+
 def test_nova_rp_physics_only_mode_keeps_report_without_cad_artifacts(monkeypatch):
     monkeypatch.setenv("NOVA_GEOMETRY_ENABLED", "false")
     spec = RocketEngineSpec(
