@@ -37,6 +37,28 @@ const numberFormat = new Intl.NumberFormat(undefined, {
 let allJobs = [];
 const selectedJobIds = new Set();
 let stlViewerState = null;
+let threeViewerLibrariesPromise = null;
+
+const THREE_VIEWER_SCRIPTS = [
+  {
+    label: "Three.js r128",
+    url: "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js",
+    isAvailable: () => Boolean(window.THREE && THREE.REVISION === "128"),
+    globalName: "window.THREE revision 128"
+  },
+  {
+    label: "Three.js r128 STLLoader",
+    url: "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js",
+    isAvailable: () => Boolean(window.THREE && THREE.REVISION === "128" && THREE.STLLoader),
+    globalName: "THREE.STLLoader"
+  },
+  {
+    label: "Three.js r128 OrbitControls",
+    url: "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js",
+    isAvailable: () => Boolean(window.THREE && THREE.REVISION === "128" && THREE.OrbitControls),
+    globalName: "THREE.OrbitControls"
+  }
+];
 
 const modules = {
   "rocket-engine": {
@@ -268,17 +290,56 @@ function showSTLPreviewMessage(message, stlUrl = "") {
   stlViewerEl.appendChild(wrapper);
 }
 
-function stlPreviewLibraryError() {
-  if (!window.THREE) {
-    return "Three.js failed to load from cdnjs: window.THREE is unavailable.";
+function loadViewerScript(url, label) {
+  return new Promise((resolve, reject) => {
+    const existingScript = Array.from(document.scripts).find((script) => script.src === url);
+    if (existingScript?.dataset.novaViewerLoaded === "true") {
+      resolve();
+      return;
+    }
+    if (existingScript?.dataset.novaViewerLoading === "true") {
+      existingScript.addEventListener("load", () => resolve(), { once: true });
+      existingScript.addEventListener("error", () => reject(new Error(`${label} failed to load from ${url}`)), { once: true });
+      return;
+    }
+    if (existingScript) {
+      existingScript.remove();
+    }
+
+    const script = document.createElement("script");
+    script.src = url;
+    script.async = false;
+    script.dataset.novaViewerLoading = "true";
+    script.onload = () => {
+      script.dataset.novaViewerLoaded = "true";
+      script.dataset.novaViewerLoading = "false";
+      resolve();
+    };
+    script.onerror = () => {
+      script.dataset.novaViewerLoading = "false";
+      reject(new Error(`${label} failed to load from ${url}`));
+    };
+    document.head.appendChild(script);
+  });
+}
+
+async function ensureThreeViewerLibraries() {
+  if (!threeViewerLibrariesPromise) {
+    threeViewerLibrariesPromise = (async () => {
+      for (const asset of THREE_VIEWER_SCRIPTS) {
+        if (!asset.isAvailable()) {
+          await loadViewerScript(asset.url, asset.label);
+        }
+        if (!asset.isAvailable()) {
+          throw new Error(`${asset.label} loaded from ${asset.url}, but ${asset.globalName} is unavailable.`);
+        }
+      }
+    })().catch((error) => {
+      threeViewerLibrariesPromise = null;
+      throw error;
+    });
   }
-  if (!THREE.STLLoader) {
-    return "Three.js STLLoader failed to load from cdnjs: THREE.STLLoader is unavailable.";
-  }
-  if (!THREE.OrbitControls) {
-    return "Three.js OrbitControls failed to load from cdnjs: THREE.OrbitControls is unavailable.";
-  }
-  return "";
+  return threeViewerLibrariesPromise;
 }
 
 async function fetchSTLGeometry(stlUrl) {
@@ -309,13 +370,6 @@ async function renderSTLPreview(stlUrl, label) {
   stlPreviewSectionEl.hidden = false;
   stlPreviewStatusEl.textContent = "Loading";
 
-  const libraryError = stlPreviewLibraryError();
-  if (libraryError) {
-    stlPreviewStatusEl.textContent = "Preview unavailable";
-    showSTLPreviewMessage(`${libraryError} Download STL to view in FreeCAD.`, stlUrl);
-    return;
-  }
-
   const state = {
     renderer: null,
     controls: null,
@@ -325,6 +379,17 @@ async function renderSTLPreview(stlUrl, label) {
     resizeObserver: null
   };
   stlViewerState = state;
+
+  try {
+    await ensureThreeViewerLibraries();
+  } catch (error) {
+    if (stlViewerState !== state) {
+      return;
+    }
+    stlPreviewStatusEl.textContent = "Preview unavailable";
+    showSTLPreviewMessage(`${error.message} Download STL to view in FreeCAD.`, stlUrl);
+    return;
+  }
 
   let geometry;
   try {

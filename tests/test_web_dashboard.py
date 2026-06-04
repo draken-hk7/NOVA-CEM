@@ -307,16 +307,25 @@ def test_dashboard_embeds_threejs_stl_viewer_assets():
     js = (web_main.STATIC_DIR / "app.js").read_text(encoding="utf-8")
     css = (web_main.STATIC_DIR / "styles.css").read_text(encoding="utf-8")
 
-    assert "cdnjs.cloudflare.com/ajax/libs/three.js" in html
-    assert "three.min.js" in html
-    assert "STLLoader.js" in html
-    assert "OrbitControls.js" in html
+    assert "cdnjs.cloudflare.com/ajax/libs/three.js" not in html
+    assert "STLLoader.js" not in html
+    assert "OrbitControls.js" not in html
     assert 'id="stl-viewer"' in html
+    assert "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" in js
+    assert "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js" in js
+    assert "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js" in js
+    assert 'document.createElement("script")' in js
+    assert "script.onload" in js
+    assert "script.onerror" in js
+    assert "await loadViewerScript(asset.url, asset.label)" in js
+    assert "ensureThreeViewerLibraries()" in js
     assert "new THREE.STLLoader()" in js
     assert "fetch(stlUrl, { credentials: \"same-origin\" })" in js
     assert "`/download/${encodeURIComponent(job.job_id)}/stl`" in js
     assert "STL fetch failed for ${stlUrl}" in js
     assert "Download STL to view in FreeCAD" in js
+    assert 'globalName: "THREE.STLLoader"' in js
+    assert "but ${asset.globalName} is unavailable." in js
     assert "new THREE.WebGLRenderer" in js
     assert "new THREE.OrbitControls" in js
     assert "renderSTLPreview(stlDownloadUrl(job)" in js
