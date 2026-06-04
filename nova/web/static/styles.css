@@ -409,6 +409,7 @@ button.secondary:hover,
 }
 
 .stl-preview-section:fullscreen {
+  box-sizing: border-box;
   display: flex;
   width: 100vw;
   height: 100vh;
@@ -427,7 +428,7 @@ button.secondary:hover,
 
 .stl-preview-section:fullscreen .stl-viewer {
   width: 100%;
-  height: auto;
+  height: calc(100vh - 82px);
   max-height: none;
   min-height: 0;
   flex: 1 1 auto;

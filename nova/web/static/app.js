@@ -333,6 +333,14 @@ function updateSTLFullscreenButton() {
   stlFullscreenButton.hidden = stlPreviewSectionEl.hidden || !fullscreenSupported();
   stlFullscreenButton.textContent = active ? "Exit Fullscreen" : "Fullscreen";
   stlFullscreenButton.setAttribute("aria-pressed", String(active));
+  if (stlViewerState?.resizeRenderer || stlViewerState?.fitCamera) {
+    const refreshViewport = stlViewerState.fitCamera || stlViewerState.resizeRenderer;
+    requestAnimationFrame(() => {
+      if (stlViewerState?.fitCamera === refreshViewport || stlViewerState?.resizeRenderer === refreshViewport) {
+        refreshViewport();
+      }
+    });
+  }
 }
 
 async function toggleSTLFullscreen() {
@@ -477,7 +485,9 @@ async function renderSTLPreview(stlUrl, label) {
     geometry: null,
     material: null,
     animationFrame: null,
-    resizeObserver: null
+    resizeObserver: null,
+    resizeRenderer: null,
+    fitCamera: null
   };
   stlViewerState = state;
 
@@ -534,14 +544,31 @@ async function renderSTLPreview(stlUrl, label) {
   controls.minDistance = 0.35;
   state.controls = controls;
 
+  function viewerDimensions() {
+    const rect = stlViewerEl.getBoundingClientRect();
+    const fullscreen = document.fullscreenElement === stlPreviewSectionEl;
+    const measuredWidth = Math.floor(rect.width || stlViewerEl.clientWidth || 300);
+    const measuredHeight = Math.floor(rect.height || stlViewerEl.clientHeight || 300);
+    if (fullscreen) {
+      return {
+        width: Math.max(320, measuredWidth),
+        height: Math.max(240, measuredHeight)
+      };
+    }
+    return {
+      width: Math.max(220, Math.min(300, measuredWidth)),
+      height: Math.max(220, Math.min(300, measuredHeight))
+    };
+  }
+
   function resizeRenderer() {
-    const width = Math.max(220, Math.min(300, stlViewerEl.clientWidth || 300));
-    const height = Math.max(220, Math.min(300, stlViewerEl.clientHeight || width));
+    const { width, height } = viewerDimensions();
     renderer.setSize(width, height, false);
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
   }
 
+  state.resizeRenderer = resizeRenderer;
   state.resizeObserver = new ResizeObserver(resizeRenderer);
   state.resizeObserver.observe(stlViewerEl);
   resizeRenderer();
@@ -574,14 +601,27 @@ async function renderSTLPreview(stlUrl, label) {
   mesh.name = label;
   scene.add(mesh);
 
-  camera.position.set(maxDimension * 0.95, -maxDimension * 1.25, maxDimension * 0.72);
-  camera.near = Math.max(maxDimension / 1000, 0.1);
-  camera.far = maxDimension * 12;
-  camera.lookAt(0, 0, 0);
-  camera.updateProjectionMatrix();
-  controls.target.set(0, 0, 0);
-  controls.maxDistance = maxDimension * 5;
-  controls.update();
+  const modelRadius = Math.max(size.length() / 2, maxDimension / 2, 1);
+  const cameraDirection = new THREE.Vector3(0.58, -0.76, 0.45).normalize();
+
+  function fitCameraToObject() {
+    resizeRenderer();
+    const fov = camera.fov * (Math.PI / 180);
+    const horizontalFov = 2 * Math.atan(Math.tan(fov / 2) * camera.aspect);
+    const limitingFov = Math.max(Math.min(fov, horizontalFov), 0.1);
+    const distance = (modelRadius / Math.sin(limitingFov / 2)) * 1.22;
+    camera.position.copy(cameraDirection.clone().multiplyScalar(distance));
+    camera.near = Math.max(distance / 1000, 0.1);
+    camera.far = Math.max(distance * 10, maxDimension * 12);
+    camera.lookAt(0, 0, 0);
+    camera.updateProjectionMatrix();
+    controls.target.set(0, 0, 0);
+    controls.maxDistance = distance * 5;
+    controls.update();
+  }
+
+  state.fitCamera = fitCameraToObject;
+  fitCameraToObject();
 
   state.material = material;
   stlPreviewStatusEl.textContent = label;

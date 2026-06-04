@@ -373,9 +373,15 @@ def test_dashboard_uses_custom_delete_modal_and_stl_fullscreen_control():
     assert "confirmDeleteJob" in js
     assert "requestFullscreen" in js
     assert "document.exitFullscreen" in js
+    assert "function viewerDimensions()" in js
+    assert "function fitCameraToObject()" in js
+    assert "document.fullscreenElement === stlPreviewSectionEl" in js
+    assert "state.resizeRenderer = resizeRenderer" in js
+    assert "state.fitCamera = fitCameraToObject" in js
     assert 'document.addEventListener("fullscreenchange", updateSTLFullscreenButton)' in js
     assert ".modal-backdrop" in css
     assert ".modal-dialog" in css
     assert ".danger-primary" in css
     assert ".stl-preview-section:fullscreen" in css
+    assert "height: calc(100vh - 82px)" in css
     assert ".viewer-action" in css
