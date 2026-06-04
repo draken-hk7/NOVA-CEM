@@ -44,6 +44,10 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+body.modal-open {
+  overflow: hidden;
+}
+
 button,
 input,
 select {
@@ -344,6 +348,20 @@ button.secondary:hover,
   margin-bottom: 10px;
 }
 
+.preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.viewer-action {
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
 .stl-viewer {
   width: min(300px, 100%);
   height: min(300px, calc(100vw - 80px));
@@ -388,6 +406,31 @@ button.secondary:hover,
   padding: 8px 12px;
   text-decoration: none;
   font-weight: 700;
+}
+
+.stl-preview-section:fullscreen {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  max-height: none;
+  flex-direction: column;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--surface);
+  padding: 18px;
+}
+
+.stl-preview-section:fullscreen .preview-heading {
+  flex: 0 0 auto;
+}
+
+.stl-preview-section:fullscreen .stl-viewer {
+  width: 100%;
+  height: auto;
+  max-height: none;
+  min-height: 0;
+  flex: 1 1 auto;
 }
 
 .validation {
@@ -617,6 +660,84 @@ button.secondary:hover,
 .empty-state {
   margin: 0;
   color: var(--muted);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  background: rgba(6, 10, 9, 0.62);
+  padding: 24px;
+}
+
+.modal-backdrop[hidden] {
+  display: none;
+}
+
+.modal-dialog {
+  width: min(460px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.34);
+  padding: 18px;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.modal-close {
+  width: 36px;
+  min-height: 36px;
+  padding: 0;
+}
+
+.modal-dialog p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.modal-job {
+  margin-top: 14px !important;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  color: var(--ink) !important;
+  padding: 10px 12px;
+  overflow-wrap: anywhere;
+}
+
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.danger-primary {
+  min-height: 42px;
+  border: 1px solid var(--danger);
+  background: var(--danger);
+  color: #fff;
+  padding: 8px 13px;
+}
+
+.danger-primary:hover {
+  background: #8f1f19;
+}
+
+[data-theme="dark"] .danger-primary:hover {
+  background: #d86d63;
 }
 
 @media (max-width: 900px) {

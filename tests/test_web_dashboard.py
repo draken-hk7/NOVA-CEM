@@ -357,3 +357,25 @@ def test_dashboard_includes_mission_tab_and_metrics():
     assert "renderMissionResults(payload.job)" in js
     assert ".dashboard-tabs" in css
     assert ".mission-workspace" in css
+
+
+def test_dashboard_uses_custom_delete_modal_and_stl_fullscreen_control():
+    html = (web_main.STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    js = (web_main.STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    css = (web_main.STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+
+    assert 'id="delete-modal-backdrop"' in html
+    assert 'role="dialog"' in html
+    assert 'id="delete-modal-confirm"' in html
+    assert 'id="stl-fullscreen-button"' in html
+    assert "window.confirm" not in js
+    assert "openDeleteModal(deleteButton.dataset.jobId)" in js
+    assert "confirmDeleteJob" in js
+    assert "requestFullscreen" in js
+    assert "document.exitFullscreen" in js
+    assert 'document.addEventListener("fullscreenchange", updateSTLFullscreenButton)' in js
+    assert ".modal-backdrop" in css
+    assert ".modal-dialog" in css
+    assert ".danger-primary" in css
+    assert ".stl-preview-section:fullscreen" in css
+    assert ".viewer-action" in css

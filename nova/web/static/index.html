@@ -214,7 +214,10 @@
           <section id="stl-preview-section" class="stl-preview-section" hidden>
             <div class="panel-heading preview-heading">
               <h2>3D Preview</h2>
-              <span id="stl-preview-status" class="muted">No STL</span>
+              <div class="preview-actions">
+                <span id="stl-preview-status" class="muted">No STL</span>
+                <button id="stl-fullscreen-button" class="secondary viewer-action" type="button" hidden>Fullscreen</button>
+              </div>
             </div>
             <div id="stl-viewer" class="stl-viewer" aria-label="3D STL preview"></div>
           </section>
@@ -364,6 +367,21 @@
         </section>
       </section>
     </main>
+
+    <div id="delete-modal-backdrop" class="modal-backdrop" hidden>
+      <section class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-modal-title" aria-describedby="delete-modal-description">
+        <div class="modal-header">
+          <h2 id="delete-modal-title">Delete Job</h2>
+          <button id="delete-modal-close" class="secondary modal-close" type="button" aria-label="Close delete dialog">x</button>
+        </div>
+        <p id="delete-modal-description">This will permanently remove the output folder and delete the job from history.</p>
+        <p id="delete-modal-job" class="modal-job"></p>
+        <div class="modal-actions">
+          <button id="delete-modal-cancel" class="secondary" type="button">Cancel</button>
+          <button id="delete-modal-confirm" class="danger-primary" type="button">Delete Job</button>
+        </div>
+      </section>
+    </div>
 
     <script src="/static/app.js"></script>
   </body>

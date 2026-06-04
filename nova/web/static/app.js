@@ -21,6 +21,7 @@ const compareContentEl = document.querySelector("#compare-content");
 const stlPreviewSectionEl = document.querySelector("#stl-preview-section");
 const stlViewerEl = document.querySelector("#stl-viewer");
 const stlPreviewStatusEl = document.querySelector("#stl-preview-status");
+const stlFullscreenButton = document.querySelector("#stl-fullscreen-button");
 const tabButtons = document.querySelectorAll(".tab-button");
 const tabPanels = document.querySelectorAll("[data-tab-panel]");
 const missionFormEl = document.querySelector("#mission-form");
@@ -30,6 +31,11 @@ const missionErrorEl = document.querySelector("#mission-error");
 const missionActiveJobEl = document.querySelector("#mission-active-job");
 const missionResultCardsEl = document.querySelector("#mission-result-cards");
 const missionDownloadButtonsEl = document.querySelector("#mission-download-buttons");
+const deleteModalBackdropEl = document.querySelector("#delete-modal-backdrop");
+const deleteModalJobEl = document.querySelector("#delete-modal-job");
+const deleteModalConfirmButton = document.querySelector("#delete-modal-confirm");
+const deleteModalCancelButton = document.querySelector("#delete-modal-cancel");
+const deleteModalCloseButton = document.querySelector("#delete-modal-close");
 
 const numberFormat = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 3
@@ -39,6 +45,8 @@ let allJobs = [];
 const selectedJobIds = new Set();
 let stlViewerState = null;
 let threeViewerLibrariesPromise = null;
+let pendingDeleteJobId = "";
+let deleteModalPreviousFocus = null;
 
 const THREE_VIEWER_SCRIPTS = [
   {
@@ -316,6 +324,34 @@ function stlDownloadUrl(job) {
   return `/download/${encodeURIComponent(job.job_id)}/stl`;
 }
 
+function fullscreenSupported() {
+  return Boolean(stlPreviewSectionEl.requestFullscreen && document.exitFullscreen);
+}
+
+function updateSTLFullscreenButton() {
+  const active = document.fullscreenElement === stlPreviewSectionEl;
+  stlFullscreenButton.hidden = stlPreviewSectionEl.hidden || !fullscreenSupported();
+  stlFullscreenButton.textContent = active ? "Exit Fullscreen" : "Fullscreen";
+  stlFullscreenButton.setAttribute("aria-pressed", String(active));
+}
+
+async function toggleSTLFullscreen() {
+  if (!fullscreenSupported()) {
+    setError("Fullscreen mode is not supported by this browser.");
+    return;
+  }
+  try {
+    if (document.fullscreenElement === stlPreviewSectionEl) {
+      await document.exitFullscreen();
+    } else {
+      await stlPreviewSectionEl.requestFullscreen();
+    }
+  } catch (error) {
+    setError(`Could not toggle fullscreen: ${error.message}`);
+    setStatus("Failed");
+  }
+}
+
 function clearSTLPreview() {
   if (stlViewerState?.animationFrame) {
     cancelAnimationFrame(stlViewerState.animationFrame);
@@ -334,6 +370,7 @@ function clearSTLPreview() {
   }
   stlViewerState = null;
   stlViewerEl.replaceChildren();
+  updateSTLFullscreenButton();
 }
 
 function showSTLPreviewMessage(message, stlUrl = "") {
@@ -427,10 +464,12 @@ async function renderSTLPreview(stlUrl, label) {
   if (!stlUrl) {
     stlPreviewSectionEl.hidden = true;
     stlPreviewStatusEl.textContent = "No STL";
+    updateSTLFullscreenButton();
     return;
   }
   stlPreviewSectionEl.hidden = false;
   stlPreviewStatusEl.textContent = "Loading";
+  updateSTLFullscreenButton();
 
   const state = {
     renderer: null,
@@ -761,11 +800,29 @@ async function setStarred(jobId, starred) {
   }
 }
 
-async function deleteJob(jobId) {
-  const confirmed = window.confirm(`Delete job ${jobId}? This removes its output folder and history entry.`);
-  if (!confirmed) {
-    return;
+function openDeleteModal(jobId) {
+  pendingDeleteJobId = jobId;
+  deleteModalPreviousFocus = document.activeElement;
+  const job = allJobs.find((item) => item.job_id === jobId);
+  deleteModalJobEl.textContent = job ? `${moduleLabel(job.module || "rocket-engine")} - ${job.job_id}` : jobId;
+  deleteModalBackdropEl.hidden = false;
+  document.body.classList.add("modal-open");
+  deleteModalConfirmButton.disabled = false;
+  deleteModalCancelButton.disabled = false;
+  deleteModalConfirmButton.focus();
+}
+
+function closeDeleteModal() {
+  pendingDeleteJobId = "";
+  deleteModalBackdropEl.hidden = true;
+  document.body.classList.remove("modal-open");
+  if (deleteModalPreviousFocus?.focus) {
+    deleteModalPreviousFocus.focus();
   }
+  deleteModalPreviousFocus = null;
+}
+
+async function deleteJob(jobId) {
   const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, {
     method: "DELETE"
   });
@@ -776,6 +833,27 @@ async function deleteJob(jobId) {
   selectedJobIds.delete(jobId);
   await loadHistory();
   renderCompare();
+}
+
+async function confirmDeleteJob() {
+  if (!pendingDeleteJobId) {
+    return;
+  }
+  const jobId = pendingDeleteJobId;
+  setError("");
+  setStatus("Deleting");
+  deleteModalConfirmButton.disabled = true;
+  deleteModalCancelButton.disabled = true;
+  try {
+    await deleteJob(jobId);
+    closeDeleteModal();
+    setStatus("Ready");
+  } catch (error) {
+    setError(error.message);
+    setStatus("Failed");
+    deleteModalConfirmButton.disabled = false;
+    deleteModalCancelButton.disabled = false;
+  }
 }
 
 function bindDesignForm(module, config) {
@@ -902,7 +980,7 @@ historyListEl.addEventListener("click", async (event) => {
     }
     if (deleteButton) {
       setError("");
-      await deleteJob(deleteButton.dataset.jobId);
+      openDeleteModal(deleteButton.dataset.jobId);
       setStatus("Ready");
     }
   } catch (error) {
@@ -922,6 +1000,25 @@ clearCompareButton.addEventListener("click", () => {
 closeCompareButton.addEventListener("click", () => {
   comparePanelEl.hidden = true;
 });
+
+deleteModalCancelButton.addEventListener("click", closeDeleteModal);
+deleteModalCloseButton.addEventListener("click", closeDeleteModal);
+deleteModalConfirmButton.addEventListener("click", confirmDeleteJob);
+
+deleteModalBackdropEl.addEventListener("click", (event) => {
+  if (event.target === deleteModalBackdropEl) {
+    closeDeleteModal();
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !deleteModalBackdropEl.hidden) {
+    closeDeleteModal();
+  }
+});
+
+stlFullscreenButton.addEventListener("click", toggleSTLFullscreen);
+document.addEventListener("fullscreenchange", updateSTLFullscreenButton);
 
 themeToggleButton.addEventListener("click", () => {
   const current = document.documentElement.dataset.theme || "light";
