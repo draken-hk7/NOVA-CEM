@@ -105,6 +105,34 @@ h2 {
   text-align: center;
 }
 
+.dashboard-tabs {
+  display: inline-flex;
+  gap: 6px;
+  margin-bottom: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 4px;
+}
+
+.tab-button {
+  min-height: 36px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  padding: 7px 14px;
+}
+
+.tab-button:hover,
+.tab-button.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.tab-panel[hidden] {
+  display: none;
+}
+
 .workspace {
   display: grid;
   grid-template-columns: minmax(280px, 360px) 1fr;
@@ -129,6 +157,7 @@ h2 {
 
 .design-form,
 .results-panel,
+.mission-form,
 .history-panel {
   padding: 18px;
 }
@@ -146,6 +175,18 @@ h2 {
 .results-panel {
   position: sticky;
   top: 18px;
+}
+
+.mission-workspace {
+  display: grid;
+  grid-template-columns: minmax(280px, 380px) 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+.mission-form {
+  display: grid;
+  gap: 15px;
 }
 
 label {
@@ -579,7 +620,8 @@ button.secondary:hover,
 }
 
 @media (max-width: 900px) {
-  .workspace {
+  .workspace,
+  .mission-workspace {
     grid-template-columns: 1fr;
   }
 

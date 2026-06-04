@@ -13,8 +13,9 @@ from pathlib import Path
 from typing import NamedTuple
 
 from nova.core.input_schema import ActuatorSpec, HeatExchangerSpec, HotFireTestResult, RocketEngineSpec
+from nova.core.mission import calculate_mission, mission_report_text
 from nova.core.output import GeometryExporter, PerformanceReporter
-from nova.core.types import CEMRunResult, ProcessParams
+from nova.core.types import CEMRunResult, ProcessParams, to_jsonable
 from nova.feedback import FeedbackIngester
 from nova.modules.nova_ea import NovaEA
 from nova.modules.nova_hx import NovaHX
@@ -24,7 +25,7 @@ from nova.modules.nova_rp import NovaRP
 DEFAULT_CLI_MESH_TOLERANCE_MM = 0.5
 FAST_CLI_MESH_TOLERANCE_MM = 1.0
 HX_ASSEMBLY_OFFSET_MM = 150.0
-CLI_JOB_TYPES = ("rocket", "hx", "actuator", "assembly")
+CLI_JOB_TYPES = ("rocket", "hx", "actuator", "assembly", "mission")
 CLI_JOB_DATE_RE = re.compile(r"(?P<date>\d{4}-\d{2}-\d{2}_\d{4})(?:_\d{2})?$")
 
 
@@ -122,6 +123,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     assemble.add_argument("--output-dir", default="outputs/cli", help="Base directory for default assembly outputs.")
 
+    mission = sub.add_parser("mission", help="Calculate mission performance from a rocket engine job.")
+    mission.add_argument("--engine", required=True, help="Rocket engine job id or output folder.")
+    mission.add_argument("--vehicle-mass", type=float, required=True, help="Dry vehicle mass in kg.")
+    mission.add_argument("--propellant-mass", type=float, required=True, help="Propellant mass in kg.")
+    mission.add_argument("--output-dir", default="outputs/cli", help="Base directory for mission reports.")
+
     feedback = sub.add_parser("feedback")
     feedback_sub = feedback.add_subparsers(dest="feedback_command", required=True)
     ingest = feedback_sub.add_parser("ingest")
@@ -160,6 +167,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "assemble":
         return _assemble_jobs(args)
+    if args.command == "mission":
+        return _mission(args)
     if args.command == "clean":
         return _clean_outputs(args)
     if args.command == "validate":
@@ -352,6 +361,61 @@ def _assemble_jobs(args: argparse.Namespace) -> int:
     return 0
 
 
+def _mission(args: argparse.Namespace) -> int:
+    engine_dir = _resolve_job_dir(args.engine)
+    engine_payload = _read_job_data(engine_dir)
+    if not engine_payload:
+        raise FileNotFoundError(f"No data.json found for engine job: {engine_dir}")
+    result = calculate_mission(
+        engine_payload,
+        vehicle_mass_kg=args.vehicle_mass,
+        propellant_mass_kg=args.propellant_mass,
+        engine_job_id=engine_dir.name,
+    )
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    output_name = f"mission_{_slug(engine_dir.name)}_{stamp}"
+    output_dir = _unique_output_dir(Path(args.output_dir), output_name)
+    output_dir.mkdir(parents=True, exist_ok=False)
+    report = output_dir / "mission_report.pdf"
+    data = output_dir / "data.json"
+    files = {"report": str(report), "json": str(data)}
+    PerformanceReporter()._write_minimal_pdf(str(report), mission_report_text(result))
+    data.write_text(
+        json.dumps(
+            {
+                "job_id": output_dir.name,
+                "module": "mission",
+                "engine_job": str(engine_dir),
+                "inputs": {
+                    "engine_job_id": engine_dir.name,
+                    "vehicle_mass_kg": args.vehicle_mass,
+                    "propellant_mass_kg": args.propellant_mass,
+                },
+                "mission": to_jsonable(result),
+                "files": files,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    print(
+        json.dumps(
+            {
+                "job_id": output_dir.name,
+                "engine_job": str(engine_dir),
+                "output_dir": str(output_dir),
+                "report": str(report),
+                "delta_v_m_s": result.delta_v_m_s,
+                "burn_time_s": result.burn_time_s,
+                "thrust_to_weight": result.thrust_to_weight,
+                "max_altitude_m": result.max_altitude_m,
+                "hydrogen_mass_needed_kg_s": result.hydrogen_mass_needed_kg_s,
+            }
+        )
+    )
+    return 0
+
+
 def _assembly_output_path(args: argparse.Namespace) -> Path:
     if args.output:
         return Path(args.output)
@@ -448,6 +512,8 @@ def _classify_cli_job(job_dir: Path) -> str:
         return "hx"
     if module == "actuator":
         return "actuator"
+    if module == "mission":
+        return "mission"
     name = job_dir.name.lower()
     if name.startswith("hx_"):
         return "hx"
@@ -455,6 +521,8 @@ def _classify_cli_job(job_dir: Path) -> str:
         return "actuator"
     if name.startswith("assembly_"):
         return "assembly"
+    if name.startswith("mission_"):
+        return "mission"
     if name.startswith(("kerolox_", "methalox_", "hydrolox_", "hypergolic_", "solid_")):
         return "rocket"
     return "unknown"
@@ -640,6 +708,10 @@ def _triangle_normal(
     if length == 0.0:
         return (0.0, 0.0, 0.0)
     return (nx / length, ny / length, nz / length)
+
+
+def _slug(value: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_.-]+", "_", value).strip("_")
 
 
 def _write_assembly_report(

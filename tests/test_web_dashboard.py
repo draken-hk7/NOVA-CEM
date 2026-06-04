@@ -1,5 +1,6 @@
 import asyncio
 import json
+import math
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,6 +15,7 @@ def test_dashboard_registers_all_design_routes():
     assert "/api/design/rocket-engine" in routes
     assert "/api/design/heat-exchanger" in routes
     assert "/api/design/actuator" in routes
+    assert "/api/mission" in routes
     assert "/api/jobs/{job_id}" in routes
     assert "/api/jobs/{job_id}/star" in routes
     assert "/api/history/export.csv" in routes
@@ -128,6 +130,65 @@ def test_actuator_dashboard_endpoint_records_module_metrics(monkeypatch):
     assert job["metrics"]["current_draw_A"] == 3.211
     assert set(job["files"]) == {"stl", "step", "report"}
     assert records[0]["module"] == "actuator"
+
+
+def test_mission_dashboard_endpoint_records_report_and_history(monkeypatch):
+    root = _configure_history(monkeypatch, "mission", [])
+    engine_dir = root / "engine-a"
+    engine_dir.mkdir(parents=True, exist_ok=True)
+    engine_payload = {
+        "job_id": "engine-a",
+        "module": "rocket-engine",
+        "inputs": {"propellant": "hydrolox"},
+        "design": {
+            "performance": {
+                "specific_impulse_s": 450.0,
+                "thrust_N": 5000.0,
+                "mass_flow_rate_kg_s": 1.2,
+            },
+            "metadata": {"combustion": {"OF_ratio": 5.5}},
+        },
+    }
+    data_path = engine_dir / "data.json"
+    data_path.write_text(json.dumps(engine_payload), encoding="utf-8")
+    web_main._write_history(
+        [
+            {
+                "job_id": "engine-a",
+                "module": "rocket-engine",
+                "created_at": "2026-06-03T12:00:00",
+                "starred": False,
+                "parameters": {"propellant": "hydrolox"},
+                "metrics": {"specific_impulse_s": 450.0, "thrust_N": 5000.0},
+                "validation": {"passed": True, "checks": []},
+                "files": {"report": "/download/engine-a/report"},
+                "artifact_paths": {"json": str(data_path)},
+            }
+        ]
+    )
+
+    response = asyncio.run(
+        web_main.run_mission(
+            web_main.DashboardMissionRequest(
+                engine_job_id="engine-a",
+                vehicle_mass_kg=50.0,
+                propellant_mass_kg=20.0,
+            )
+        )
+    )
+
+    job = response["job"]
+    history = web_main._read_history()
+    mission_record = next(item for item in history if item["module"] == "mission")
+    report = Path(mission_record["artifact_paths"]["report"])
+
+    assert job["module"] == "mission"
+    assert set(job["files"]) == {"report"}
+    assert job["metrics"]["delta_v_m_s"] == pytest.approx(round(450.0 * 9.81 * math.log(70.0 / 50.0), 2))
+    assert job["metrics"]["hydrogen_mass_needed_kg_s"] == pytest.approx(round(1.2 / 6.5, 6))
+    assert report.name == "mission_report.pdf"
+    assert report.exists() and b"NOVA Mission Report" in report.read_bytes()
+    assert history[0]["module"] == "mission"
 
 
 def test_starred_jobs_sort_first_and_public_history_includes_starred(monkeypatch):
@@ -262,3 +323,20 @@ def test_dashboard_embeds_threejs_stl_viewer_assets():
     assert ".stl-viewer" in css
     assert ".preview-message a" in css
     assert "300px" in css
+
+
+def test_dashboard_includes_mission_tab_and_metrics():
+    html = (web_main.STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    js = (web_main.STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    css = (web_main.STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+
+    assert 'id="mission-tab"' in html
+    assert 'id="mission-form"' in html
+    assert 'id="mission-result-cards"' in html
+    assert '<option value="mission">Mission</option>' in html
+    assert 'fetch("/api/mission"' in js
+    assert "delta_v_m_s" in js
+    assert "hydrogen_mass_needed_kg_s" in js
+    assert "renderMissionResults(payload.job)" in js
+    assert ".dashboard-tabs" in css
+    assert ".mission-workspace" in css

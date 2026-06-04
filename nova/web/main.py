@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from nova.core.input_schema import ActuatorSpec, HeatExchangerSpec, RocketEngineSpec
+from nova.core.mission import calculate_mission, mission_report_text
 from nova.core.output import GeometryExporter, PerformanceReporter
 from nova.core.types import CEMRunResult, to_jsonable
 from nova.modules.nova_ea import NovaEA
@@ -58,6 +59,12 @@ class DashboardActuatorRequest(BaseModel):
     voltage_V: float = Field(24.0, gt=0.0)
     response_time_ms: float = Field(50.0, gt=0.0)
     material: Literal["steel", "inconel", "aluminum"] = "steel"
+
+
+class DashboardMissionRequest(BaseModel):
+    engine_job_id: str = Field(..., min_length=1)
+    vehicle_mass_kg: float = Field(..., gt=0.0)
+    propellant_mass_kg: float = Field(..., gt=0.0)
 
 
 class StarJobRequest(BaseModel):
@@ -171,6 +178,43 @@ async def design_actuator(request: DashboardActuatorRequest) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.post("/api/mission")
+async def run_mission(request: DashboardMissionRequest) -> dict:
+    try:
+        engine_payload = _engine_payload_for_mission(request.engine_job_id)
+        result = calculate_mission(
+            engine_payload,
+            vehicle_mass_kg=request.vehicle_mass_kg,
+            propellant_mass_kg=request.propellant_mass_kg,
+            engine_job_id=request.engine_job_id,
+        )
+        job_id = _unique_job_id(
+            "mission",
+            f"{request.engine_job_id}_{request.vehicle_mass_kg:g}kg_{request.propellant_mass_kg:g}kg",
+        )
+        job_dir = WEB_JOB_ROOT / job_id
+        job_dir.mkdir(parents=True, exist_ok=False)
+        files = _export_mission_artifacts(job_id, request, result, job_dir)
+        record = _job_record(
+            job_id=job_id,
+            module="mission",
+            parameters={
+                "engine_job_id": request.engine_job_id,
+                "vehicle_mass_kg": request.vehicle_mass_kg,
+                "propellant_mass_kg": request.propellant_mass_kg,
+            },
+            metrics=_mission_metrics(result),
+            validation={"passed": True, "checks": []},
+            files=files,
+        )
+        _prepend_history(record)
+        return {"job": _public_record(record), "mission": to_jsonable(result)}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get("/api/history")
 async def history() -> dict:
     return {"jobs": [_public_record(job) for job in _sorted_history(_read_history())]}
@@ -255,6 +299,32 @@ def _export_module_artifacts(
     return files
 
 
+def _export_mission_artifacts(
+    job_id: str,
+    request: DashboardMissionRequest,
+    result: object,
+    job_dir: Path,
+) -> dict[str, str]:
+    report = job_dir / "mission_report.pdf"
+    data = job_dir / "data.json"
+    files = {"report": str(report), "json": str(data)}
+    PerformanceReporter()._write_minimal_pdf(str(report), mission_report_text(result))
+    data.write_text(
+        json.dumps(
+            {
+                "job_id": job_id,
+                "module": "mission",
+                "inputs": request.model_dump(),
+                "mission": to_jsonable(result),
+                "files": files,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return files
+
+
 def _job_record(
     *,
     job_id: str,
@@ -303,6 +373,16 @@ def _actuator_metrics(design: object) -> dict[str, float]:
         "current_draw_A": round(float(design.performance.current_draw_A), 3),
         "power_consumption_W": round(float(design.performance.power_consumption_W), 2),
         "response_time_ms": round(float(design.performance.response_time_ms), 2),
+    }
+
+
+def _mission_metrics(result: object) -> dict[str, float]:
+    return {
+        "delta_v_m_s": round(float(result.delta_v_m_s), 2),
+        "burn_time_s": round(float(result.burn_time_s), 2),
+        "thrust_to_weight": round(float(result.thrust_to_weight), 3),
+        "max_altitude_m": round(float(result.max_altitude_m), 2),
+        "hydrogen_mass_needed_kg_s": round(float(result.hydrogen_mass_needed_kg_s), 6),
     }
 
 
@@ -382,6 +462,50 @@ def _delete_job_folder(job_id: str) -> None:
         raise HTTPException(status_code=400, detail="Invalid job path")
     if job_dir.exists():
         shutil.rmtree(job_dir)
+
+
+def _engine_payload_for_mission(engine_job_id: str) -> dict:
+    if "/" in engine_job_id or "\\" in engine_job_id:
+        raise HTTPException(status_code=400, detail="Engine job id must not contain path separators")
+    try:
+        record = _find_job(engine_job_id)
+    except HTTPException:
+        record = None
+    if record is not None:
+        if record.get("module", "rocket-engine") != "rocket-engine":
+            raise HTTPException(status_code=400, detail="Mission calculator requires a rocket engine job")
+        path_text = record.get("artifact_paths", {}).get("json")
+        if path_text:
+            path = Path(path_text).resolve()
+            root = WEB_JOB_ROOT.resolve()
+            if path.is_relative_to(root) and path.exists():
+                return _read_json_file(path)
+        return {
+            "inputs": record.get("parameters", {}),
+            "design": {"performance": record.get("metrics", {}), "metadata": {}},
+        }
+
+    for candidate in (
+        WEB_JOB_ROOT / engine_job_id / "data.json",
+        Path("outputs/cli") / engine_job_id / "data.json",
+        Path("outputs/jobs") / engine_job_id / "data.json",
+    ):
+        if candidate.exists():
+            payload = _read_json_file(candidate)
+            if payload.get("module") not in (None, "rocket-engine"):
+                raise HTTPException(status_code=400, detail="Mission calculator requires a rocket engine job")
+            return payload
+    raise HTTPException(status_code=404, detail="Engine job not found")
+
+
+def _read_json_file(path: Path) -> dict:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON payload: {path.name}") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail=f"Invalid JSON payload: {path.name}")
+    return payload
 
 
 def _history_csv(jobs: list[dict]) -> str:

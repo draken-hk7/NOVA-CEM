@@ -21,6 +21,14 @@ const compareContentEl = document.querySelector("#compare-content");
 const stlPreviewSectionEl = document.querySelector("#stl-preview-section");
 const stlViewerEl = document.querySelector("#stl-viewer");
 const stlPreviewStatusEl = document.querySelector("#stl-preview-status");
+const tabButtons = document.querySelectorAll(".tab-button");
+const tabPanels = document.querySelectorAll("[data-tab-panel]");
+const missionFormEl = document.querySelector("#mission-form");
+const missionButtonEl = document.querySelector("#mission-button");
+const missionErrorEl = document.querySelector("#mission-error");
+const missionActiveJobEl = document.querySelector("#mission-active-job");
+const missionResultCardsEl = document.querySelector("#mission-result-cards");
+const missionDownloadButtonsEl = document.querySelector("#mission-download-buttons");
 
 const numberFormat = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 3
@@ -98,6 +106,16 @@ const modules = {
         material: data.get("material")
       };
     }
+  },
+  mission: {
+    label: "Mission",
+    metrics: [
+      ["delta_v_m_s", "Delta-V", "m/s"],
+      ["burn_time_s", "Burn Time", "s"],
+      ["thrust_to_weight", "T/W", "ratio"],
+      ["max_altitude_m", "Max Altitude", "m"],
+      ["hydrogen_mass_needed_kg_s", "H2 Flow", "kg/s"]
+    ]
   }
 };
 
@@ -113,6 +131,29 @@ function setError(message) {
   }
   errorEl.hidden = false;
   errorEl.textContent = message;
+}
+
+function setMissionError(message) {
+  if (!message) {
+    missionErrorEl.hidden = true;
+    missionErrorEl.textContent = "";
+    return;
+  }
+  missionErrorEl.hidden = false;
+  missionErrorEl.textContent = message;
+}
+
+function setActiveTab(targetId) {
+  tabPanels.forEach((panel) => {
+    const active = panel.id === targetId;
+    panel.hidden = !active;
+    panel.classList.toggle("active", active);
+  });
+  tabButtons.forEach((button) => {
+    const active = button.dataset.tabTarget === targetId;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
 }
 
 function escapeHtml(value) {
@@ -384,16 +425,7 @@ async function renderSTLPreview(stlUrl, label) {
 function renderResults(job) {
   const module = job.module || "rocket-engine";
   activeJobEl.textContent = `${moduleLabel(module)} - ${job.job_id}`;
-  resultCardsEl.innerHTML = metricDefinition(module).map(([key, label, unit]) => {
-    const value = job.metrics[key];
-    return `
-      <article class="metric-card">
-        <span class="metric-label">${escapeHtml(label)}</span>
-        <strong>${escapeHtml(formatValue(value))}</strong>
-        <span class="metric-unit">${escapeHtml(unit)}</span>
-      </article>
-    `;
-  }).join("");
+  renderMetricCards(resultCardsEl, module, job.metrics || {});
   renderValidation(job.validation);
 
   downloadButtonsEl.classList.remove("muted");
@@ -403,6 +435,28 @@ function renderResults(job) {
     report: "Download PDF"
   }) || "No artifacts available";
   renderSTLPreview(stlDownloadUrl(job), `${moduleLabel(module)} - ${job.job_id}`);
+}
+
+function renderMetricCards(container, module, metrics) {
+  container.innerHTML = metricDefinition(module).map(([key, label, unit]) => {
+    const value = metrics[key];
+    return `
+      <article class="metric-card">
+        <span class="metric-label">${escapeHtml(label)}</span>
+        <strong>${escapeHtml(formatValue(value))}</strong>
+        <span class="metric-unit">${escapeHtml(unit)}</span>
+      </article>
+    `;
+  }).join("");
+}
+
+function renderMissionResults(job) {
+  missionActiveJobEl.textContent = `${moduleLabel(job.module)} - ${job.job_id}`;
+  renderMetricCards(missionResultCardsEl, "mission", job.metrics || {});
+  missionDownloadButtonsEl.classList.remove("muted");
+  missionDownloadButtonsEl.innerHTML = artifactLinks(job.files, {
+    report: "Download PDF"
+  }) || "No mission report available";
 }
 
 function applyHistoryFilters() {
@@ -489,6 +543,8 @@ function historyParameters(job) {
       return `${p.hot_fluid} to ${p.cold_fluid}, ${formatValue(p.duty_kW)} kW, ${formatValue(p.hot_inlet_temp_C)} C to ${formatValue(p.hot_outlet_temp_C)} C`;
     case "actuator":
       return `${p.actuator_type || "solenoid"}, ${formatValue(p.force_N)} N, ${formatValue(p.stroke_mm)} mm, ${formatValue(p.voltage_V)} V, ${p.material}`;
+    case "mission":
+      return `engine ${p.engine_job_id}, dry ${formatValue(p.vehicle_mass_kg)} kg, propellant ${formatValue(p.propellant_mass_kg)} kg`;
     default:
       return `${p.propellant}, ${formatValue(p.thrust_N)} N, ${formatValue(p.chamber_pressure_bar)} bar, ${p.material}`;
   }
@@ -501,6 +557,8 @@ function historyMetrics(job) {
       return `effectiveness ${formatValue(m.effectiveness)}, NTU ${formatValue(m.ntu)}, pressure drop ${formatValue(m.pressure_drop_bar)} bar`;
     case "actuator":
       return `force ${formatValue(m.force_output_N)} N, current ${formatValue(m.current_draw_A)} A, power ${formatValue(m.power_consumption_W)} W`;
+    case "mission":
+      return `delta-V ${formatValue(m.delta_v_m_s)} m/s, burn ${formatValue(m.burn_time_s)} s, T/W ${formatValue(m.thrust_to_weight)}`;
     default:
       return `Isp ${formatValue(m.specific_impulse_s)} s, mass ${formatValue(m.engine_mass_kg)} kg, print ${formatValue(m.print_time_hours)} h`;
   }
@@ -623,13 +681,60 @@ function bindDesignForm(module, config) {
   });
 }
 
+async function runMission(event) {
+  event.preventDefault();
+  setMissionError("");
+  setError("");
+  setStatus("Calculating mission");
+  missionButtonEl.disabled = true;
+
+  try {
+    const data = new FormData(missionFormEl);
+    const response = await fetch("/api/mission", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        engine_job_id: String(data.get("engine_job_id") || "").trim(),
+        vehicle_mass_kg: Number(data.get("vehicle_mass_kg")),
+        propellant_mass_kg: Number(data.get("propellant_mass_kg"))
+      })
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.detail || "Mission calculation failed");
+    }
+    renderMissionResults(payload.job);
+    await loadHistory();
+    setStatus("Complete");
+  } catch (error) {
+    setMissionError(error.message);
+    setStatus("Failed");
+  } finally {
+    missionButtonEl.disabled = false;
+  }
+}
+
 function setTheme(theme) {
   document.documentElement.dataset.theme = theme;
   localStorage.setItem("nova-theme", theme);
   themeToggleButton.textContent = theme === "dark" ? "Light Mode" : "Dark Mode";
 }
 
-Object.entries(modules).forEach(([module, config]) => bindDesignForm(module, config));
+Object.entries(modules).forEach(([module, config]) => {
+  if (config.form) {
+    bindDesignForm(module, config);
+  }
+});
+
+tabButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    setActiveTab(button.dataset.tabTarget);
+  });
+});
+
+missionFormEl.addEventListener("submit", runMission);
 
 for (const control of [searchFilterEl, moduleFilterEl, propellantFilterEl, dateFromFilterEl, dateToFilterEl]) {
   control.addEventListener("input", renderFilteredHistory);

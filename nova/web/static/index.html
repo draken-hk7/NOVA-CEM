@@ -19,9 +19,15 @@
         </div>
       </header>
 
-      <section class="workspace" aria-label="NOVA design workspace">
-        <div class="form-stack">
-          <form id="engine-form" class="panel design-form">
+      <nav class="dashboard-tabs" aria-label="Dashboard views">
+        <button class="tab-button active" type="button" data-tab-target="design-tab">Design</button>
+        <button class="tab-button" type="button" data-tab-target="mission-tab">Mission</button>
+      </nav>
+
+      <section id="design-tab" class="tab-panel active" data-tab-panel>
+        <section class="workspace" aria-label="NOVA design workspace">
+          <div class="form-stack">
+            <form id="engine-form" class="panel design-form">
             <div class="panel-heading">
               <h2>Rocket Engine</h2>
             </div>
@@ -60,9 +66,9 @@
             </label>
 
             <button id="engine-button" type="submit">Design Engine</button>
-          </form>
+            </form>
 
-          <form id="hx-form" class="panel design-form">
+            <form id="hx-form" class="panel design-form">
             <div class="panel-heading">
               <h2>Heat Exchanger</h2>
             </div>
@@ -118,9 +124,9 @@
             </label>
 
             <button id="hx-button" type="submit">Design Heat Exchanger</button>
-          </form>
+            </form>
 
-          <form id="actuator-form" class="panel design-form">
+            <form id="actuator-form" class="panel design-form">
             <div class="panel-heading">
               <h2>Actuator</h2>
             </div>
@@ -167,12 +173,12 @@
             </label>
 
             <button id="actuator-button" type="submit">Design Actuator</button>
-          </form>
+            </form>
 
-          <p id="error" class="error" hidden></p>
-        </div>
+            <p id="error" class="error" hidden></p>
+          </div>
 
-        <section class="panel results-panel" aria-live="polite">
+          <section class="panel results-panel" aria-live="polite">
           <div class="panel-heading">
             <h2>Results</h2>
             <span id="active-job" class="muted">No active job</span>
@@ -222,10 +228,10 @@
             <h2>Downloads</h2>
             <div id="download-buttons" class="download-buttons muted">No artifacts available</div>
           </div>
+          </section>
         </section>
-      </section>
 
-      <section class="panel history-panel">
+        <section class="panel history-panel">
         <div class="panel-heading">
           <h2>Job History</h2>
           <div class="history-toolbar-actions">
@@ -245,6 +251,7 @@
               <option value="rocket-engine">Rocket Engine</option>
               <option value="heat-exchanger">Heat Exchanger</option>
               <option value="actuator">Actuator</option>
+              <option value="mission">Mission</option>
             </select>
           </label>
           <label>
@@ -271,14 +278,88 @@
           <button id="clear-compare" class="secondary" type="button">Clear</button>
         </div>
         <div id="history-list" class="history-list"></div>
-      </section>
+        </section>
 
-      <section id="compare-panel" class="panel compare-panel" hidden>
+        <section id="compare-panel" class="panel compare-panel" hidden>
         <div class="panel-heading">
           <h2>Compare Jobs</h2>
           <button id="close-compare" class="secondary" type="button">Close</button>
         </div>
         <div id="compare-content" class="compare-content"></div>
+        </section>
+      </section>
+
+      <section id="mission-tab" class="tab-panel" data-tab-panel hidden>
+        <section class="mission-workspace" aria-label="NOVA mission calculator">
+          <form id="mission-form" class="panel mission-form">
+            <div class="panel-heading">
+              <h2>Mission Calculator</h2>
+            </div>
+
+            <label>
+              <span>Engine Job ID</span>
+              <input id="mission_engine_job_id" name="engine_job_id" type="text" placeholder="rocket-engine_hydrolox_5000N_50bar..." required>
+            </label>
+
+            <label>
+              <span>Vehicle Dry Mass</span>
+              <div class="unit-input">
+                <input id="mission_vehicle_mass_kg" name="vehicle_mass_kg" type="number" min="0.001" step="0.1" value="50" required>
+                <span>kg</span>
+              </div>
+            </label>
+
+            <label>
+              <span>Propellant Mass</span>
+              <div class="unit-input">
+                <input id="mission_propellant_mass_kg" name="propellant_mass_kg" type="number" min="0.001" step="0.1" value="20" required>
+                <span>kg</span>
+              </div>
+            </label>
+
+            <button id="mission-button" type="submit">Calculate Mission</button>
+            <p id="mission-error" class="error" hidden></p>
+          </form>
+
+          <section class="panel results-panel mission-results" aria-live="polite">
+            <div class="panel-heading">
+              <h2>Mission Results</h2>
+              <span id="mission-active-job" class="muted">No mission run</span>
+            </div>
+            <div id="mission-result-cards" class="cards">
+              <article class="metric-card empty">
+                <span class="metric-label">Delta-V</span>
+                <strong>--</strong>
+                <span class="metric-unit">m/s</span>
+              </article>
+              <article class="metric-card empty">
+                <span class="metric-label">Burn Time</span>
+                <strong>--</strong>
+                <span class="metric-unit">s</span>
+              </article>
+              <article class="metric-card empty">
+                <span class="metric-label">T/W</span>
+                <strong>--</strong>
+                <span class="metric-unit">ratio</span>
+              </article>
+              <article class="metric-card empty">
+                <span class="metric-label">Max Altitude</span>
+                <strong>--</strong>
+                <span class="metric-unit">m</span>
+              </article>
+              <article class="metric-card empty">
+                <span class="metric-label">H2 Flow</span>
+                <strong>--</strong>
+                <span class="metric-unit">kg/s</span>
+              </article>
+            </div>
+
+            <div class="downloads">
+              <h2>Downloads</h2>
+              <div id="mission-download-buttons" class="download-buttons muted">No mission report available</div>
+            </div>
+          </section>
+        </section>
       </section>
     </main>
 
