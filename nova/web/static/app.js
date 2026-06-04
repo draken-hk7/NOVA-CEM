@@ -181,6 +181,16 @@ function artifactLinks(files, labels) {
     .join("");
 }
 
+function stlDownloadUrl(job) {
+  if (!job?.files?.stl) {
+    return "";
+  }
+  if (!job.job_id) {
+    return job.files.stl;
+  }
+  return `/download/${encodeURIComponent(job.job_id)}/stl`;
+}
+
 function clearSTLPreview() {
   if (stlViewerState?.animationFrame) {
     cancelAnimationFrame(stlViewerState.animationFrame);
@@ -201,7 +211,54 @@ function clearSTLPreview() {
   stlViewerEl.replaceChildren();
 }
 
-function renderSTLPreview(stlUrl, label) {
+function showSTLPreviewMessage(message, stlUrl = "") {
+  stlViewerEl.replaceChildren();
+  const wrapper = document.createElement("div");
+  wrapper.className = "muted preview-message";
+  const text = document.createElement("p");
+  text.textContent = message;
+  wrapper.appendChild(text);
+  if (stlUrl) {
+    const link = document.createElement("a");
+    link.href = stlUrl;
+    link.textContent = "Download STL to view in FreeCAD";
+    wrapper.appendChild(link);
+  }
+  stlViewerEl.appendChild(wrapper);
+}
+
+function stlPreviewLibraryError() {
+  if (!window.THREE) {
+    return "Three.js failed to load from cdnjs: window.THREE is unavailable.";
+  }
+  if (!THREE.STLLoader) {
+    return "Three.js STLLoader failed to load from cdnjs: THREE.STLLoader is unavailable.";
+  }
+  if (!THREE.OrbitControls) {
+    return "Three.js OrbitControls failed to load from cdnjs: THREE.OrbitControls is unavailable.";
+  }
+  return "";
+}
+
+async function fetchSTLGeometry(stlUrl) {
+  let response;
+  try {
+    response = await fetch(stlUrl, { credentials: "same-origin" });
+  } catch (error) {
+    throw new Error(`STL fetch failed for ${stlUrl}: ${error.message}`);
+  }
+  if (!response.ok) {
+    throw new Error(`STL fetch failed for ${stlUrl}: ${response.status} ${response.statusText}`);
+  }
+  const buffer = await response.arrayBuffer();
+  try {
+    return new THREE.STLLoader().parse(buffer);
+  } catch (error) {
+    throw new Error(`STL parse failed for ${stlUrl}: ${error.message}`);
+  }
+}
+
+async function renderSTLPreview(stlUrl, label) {
   clearSTLPreview();
   if (!stlUrl) {
     stlPreviewSectionEl.hidden = true;
@@ -211,11 +268,39 @@ function renderSTLPreview(stlUrl, label) {
   stlPreviewSectionEl.hidden = false;
   stlPreviewStatusEl.textContent = "Loading";
 
-  if (!window.THREE || !THREE.STLLoader) {
+  const libraryError = stlPreviewLibraryError();
+  if (libraryError) {
     stlPreviewStatusEl.textContent = "Preview unavailable";
-    stlViewerEl.innerHTML = '<div class="muted preview-message">3D preview unavailable</div>';
+    showSTLPreviewMessage(`${libraryError} Download STL to view in FreeCAD.`, stlUrl);
     return;
   }
+
+  const state = {
+    renderer: null,
+    controls: null,
+    geometry: null,
+    material: null,
+    animationFrame: null,
+    resizeObserver: null
+  };
+  stlViewerState = state;
+
+  let geometry;
+  try {
+    geometry = await fetchSTLGeometry(stlUrl);
+  } catch (error) {
+    if (stlViewerState !== state) {
+      return;
+    }
+    stlPreviewStatusEl.textContent = "Preview failed";
+    showSTLPreviewMessage(error.message, stlUrl);
+    return;
+  }
+  if (stlViewerState !== state) {
+    geometry.dispose();
+    return;
+  }
+  state.geometry = geometry;
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue("--field").trim() || "#ffffff");
@@ -224,6 +309,7 @@ function renderSTLPreview(stlUrl, label) {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   stlViewerEl.appendChild(renderer.domElement);
+  state.renderer = renderer;
 
   const hemiLight = new THREE.HemisphereLight(0xffffff, 0x64706a, 1.15);
   scene.add(hemiLight);
@@ -234,23 +320,12 @@ function renderSTLPreview(stlUrl, label) {
   fillLight.position.set(-2.0, 1.5, 1.0);
   scene.add(fillLight);
 
-  const controls = THREE.OrbitControls ? new THREE.OrbitControls(camera, renderer.domElement) : null;
-  if (controls) {
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.08;
-    controls.enablePan = false;
-    controls.minDistance = 0.35;
-  }
-
-  const state = {
-    renderer,
-    controls,
-    geometry: null,
-    material: null,
-    animationFrame: null,
-    resizeObserver: null
-  };
-  stlViewerState = state;
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.enablePan = false;
+  controls.minDistance = 0.35;
+  state.controls = controls;
 
   function resizeRenderer() {
     const width = Math.max(220, Math.min(300, stlViewerEl.clientWidth || 300));
@@ -269,62 +344,41 @@ function renderSTLPreview(stlUrl, label) {
       return;
     }
     state.animationFrame = requestAnimationFrame(animate);
-    controls?.update();
+    controls.update();
     renderer.render(scene, camera);
   }
 
-  const loader = new THREE.STLLoader();
-  loader.load(
-    stlUrl,
-    (geometry) => {
-      if (stlViewerState !== state) {
-        geometry.dispose();
-        return;
-      }
-      geometry.computeBoundingBox();
-      geometry.computeVertexNormals();
-      const bounds = geometry.boundingBox;
-      const size = new THREE.Vector3();
-      const center = new THREE.Vector3();
-      bounds.getSize(size);
-      bounds.getCenter(center);
-      geometry.translate(-center.x, -center.y, -center.z);
+  geometry.computeBoundingBox();
+  geometry.computeVertexNormals();
+  const bounds = geometry.boundingBox;
+  const size = new THREE.Vector3();
+  const center = new THREE.Vector3();
+  bounds.getSize(size);
+  bounds.getCenter(center);
+  geometry.translate(-center.x, -center.y, -center.z);
 
-      const maxDimension = Math.max(size.x, size.y, size.z, 1);
-      const material = new THREE.MeshStandardMaterial({
-        color: 0x9fc7bd,
-        metalness: 0.28,
-        roughness: 0.46
-      });
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.name = label;
-      scene.add(mesh);
+  const maxDimension = Math.max(size.x, size.y, size.z, 1);
+  const material = new THREE.MeshStandardMaterial({
+    color: 0x9fc7bd,
+    metalness: 0.28,
+    roughness: 0.46
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = label;
+  scene.add(mesh);
 
-      camera.position.set(maxDimension * 0.95, -maxDimension * 1.25, maxDimension * 0.72);
-      camera.near = Math.max(maxDimension / 1000, 0.1);
-      camera.far = maxDimension * 12;
-      camera.lookAt(0, 0, 0);
-      camera.updateProjectionMatrix();
-      if (controls) {
-        controls.target.set(0, 0, 0);
-        controls.maxDistance = maxDimension * 5;
-        controls.update();
-      }
+  camera.position.set(maxDimension * 0.95, -maxDimension * 1.25, maxDimension * 0.72);
+  camera.near = Math.max(maxDimension / 1000, 0.1);
+  camera.far = maxDimension * 12;
+  camera.lookAt(0, 0, 0);
+  camera.updateProjectionMatrix();
+  controls.target.set(0, 0, 0);
+  controls.maxDistance = maxDimension * 5;
+  controls.update();
 
-      state.geometry = geometry;
-      state.material = material;
-      stlPreviewStatusEl.textContent = label;
-      animate();
-    },
-    undefined,
-    () => {
-      if (stlViewerState !== state) {
-        return;
-      }
-      stlPreviewStatusEl.textContent = "Preview failed";
-      stlViewerEl.innerHTML = '<div class="muted preview-message">Could not load STL preview</div>';
-    }
-  );
+  state.material = material;
+  stlPreviewStatusEl.textContent = label;
+  animate();
 }
 
 function renderResults(job) {
@@ -348,7 +402,7 @@ function renderResults(job) {
     step: "Download STEP",
     report: "Download PDF"
   }) || "No artifacts available";
-  renderSTLPreview(job.files?.stl, `${moduleLabel(module)} - ${job.job_id}`);
+  renderSTLPreview(stlDownloadUrl(job), `${moduleLabel(module)} - ${job.job_id}`);
 }
 
 function applyHistoryFilters() {

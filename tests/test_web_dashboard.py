@@ -252,8 +252,13 @@ def test_dashboard_embeds_threejs_stl_viewer_assets():
     assert "OrbitControls.js" in html
     assert 'id="stl-viewer"' in html
     assert "new THREE.STLLoader()" in js
+    assert "fetch(stlUrl, { credentials: \"same-origin\" })" in js
+    assert "`/download/${encodeURIComponent(job.job_id)}/stl`" in js
+    assert "STL fetch failed for ${stlUrl}" in js
+    assert "Download STL to view in FreeCAD" in js
     assert "new THREE.WebGLRenderer" in js
     assert "new THREE.OrbitControls" in js
-    assert "renderSTLPreview(job.files?.stl" in js
+    assert "renderSTLPreview(stlDownloadUrl(job)" in js
     assert ".stl-viewer" in css
+    assert ".preview-message a" in css
     assert "300px" in css

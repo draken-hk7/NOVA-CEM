@@ -323,11 +323,30 @@ button.secondary:hover,
 
 .preview-message {
   display: grid;
+  gap: 12px;
   width: 100%;
   height: 100%;
   place-items: center;
   padding: 18px;
   text-align: center;
+}
+
+.preview-message p {
+  margin: 0;
+}
+
+.preview-message a {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  color: var(--ink);
+  padding: 8px 12px;
+  text-decoration: none;
+  font-weight: 700;
 }
 
 .validation {
