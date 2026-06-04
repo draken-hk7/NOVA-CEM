@@ -239,3 +239,21 @@ def test_export_history_csv_flattens_parameters_and_metrics(monkeypatch):
     assert "parameter_propellant" in body
     assert "metric_specific_impulse_s" in body
     assert "engine-a,rocket-engine,True" in body
+
+
+def test_dashboard_embeds_threejs_stl_viewer_assets():
+    html = (web_main.STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    js = (web_main.STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    css = (web_main.STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+
+    assert "cdnjs.cloudflare.com/ajax/libs/three.js" in html
+    assert "three.min.js" in html
+    assert "STLLoader.js" in html
+    assert "OrbitControls.js" in html
+    assert 'id="stl-viewer"' in html
+    assert "new THREE.STLLoader()" in js
+    assert "new THREE.WebGLRenderer" in js
+    assert "new THREE.OrbitControls" in js
+    assert "renderSTLPreview(job.files?.stl" in js
+    assert ".stl-viewer" in css
+    assert "300px" in css

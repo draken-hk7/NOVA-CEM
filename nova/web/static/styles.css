@@ -290,6 +290,46 @@ button.secondary:hover,
   margin-top: 7px;
 }
 
+.stl-preview-section {
+  width: min(100%, 332px);
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  padding: 15px;
+}
+
+.preview-heading {
+  margin-bottom: 10px;
+}
+
+.stl-viewer {
+  width: min(300px, 100%);
+  height: min(300px, calc(100vw - 80px));
+  max-height: 300px;
+  min-height: 220px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field);
+  overflow: hidden;
+  touch-action: none;
+}
+
+.stl-viewer canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.preview-message {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  padding: 18px;
+  text-align: center;
+}
+
 .validation {
   margin-top: 18px;
   padding-top: 18px;

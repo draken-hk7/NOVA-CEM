@@ -18,6 +18,9 @@ const closeCompareButton = document.querySelector("#close-compare");
 const compareCountEl = document.querySelector("#compare-count");
 const comparePanelEl = document.querySelector("#compare-panel");
 const compareContentEl = document.querySelector("#compare-content");
+const stlPreviewSectionEl = document.querySelector("#stl-preview-section");
+const stlViewerEl = document.querySelector("#stl-viewer");
+const stlPreviewStatusEl = document.querySelector("#stl-preview-status");
 
 const numberFormat = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 3
@@ -25,6 +28,7 @@ const numberFormat = new Intl.NumberFormat(undefined, {
 
 let allJobs = [];
 const selectedJobIds = new Set();
+let stlViewerState = null;
 
 const modules = {
   "rocket-engine": {
@@ -177,6 +181,152 @@ function artifactLinks(files, labels) {
     .join("");
 }
 
+function clearSTLPreview() {
+  if (stlViewerState?.animationFrame) {
+    cancelAnimationFrame(stlViewerState.animationFrame);
+  }
+  if (stlViewerState?.resizeObserver) {
+    stlViewerState.resizeObserver.disconnect();
+  }
+  if (stlViewerState?.geometry) {
+    stlViewerState.geometry.dispose();
+  }
+  if (stlViewerState?.material) {
+    stlViewerState.material.dispose();
+  }
+  if (stlViewerState?.renderer) {
+    stlViewerState.renderer.dispose();
+  }
+  stlViewerState = null;
+  stlViewerEl.replaceChildren();
+}
+
+function renderSTLPreview(stlUrl, label) {
+  clearSTLPreview();
+  if (!stlUrl) {
+    stlPreviewSectionEl.hidden = true;
+    stlPreviewStatusEl.textContent = "No STL";
+    return;
+  }
+  stlPreviewSectionEl.hidden = false;
+  stlPreviewStatusEl.textContent = "Loading";
+
+  if (!window.THREE || !THREE.STLLoader) {
+    stlPreviewStatusEl.textContent = "Preview unavailable";
+    stlViewerEl.innerHTML = '<div class="muted preview-message">3D preview unavailable</div>';
+    return;
+  }
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue("--field").trim() || "#ffffff");
+
+  const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 10000);
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  stlViewerEl.appendChild(renderer.domElement);
+
+  const hemiLight = new THREE.HemisphereLight(0xffffff, 0x64706a, 1.15);
+  scene.add(hemiLight);
+  const keyLight = new THREE.DirectionalLight(0xffffff, 1.4);
+  keyLight.position.set(1.8, -2.2, 2.8);
+  scene.add(keyLight);
+  const fillLight = new THREE.DirectionalLight(0x88c8b8, 0.55);
+  fillLight.position.set(-2.0, 1.5, 1.0);
+  scene.add(fillLight);
+
+  const controls = THREE.OrbitControls ? new THREE.OrbitControls(camera, renderer.domElement) : null;
+  if (controls) {
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.enablePan = false;
+    controls.minDistance = 0.35;
+  }
+
+  const state = {
+    renderer,
+    controls,
+    geometry: null,
+    material: null,
+    animationFrame: null,
+    resizeObserver: null
+  };
+  stlViewerState = state;
+
+  function resizeRenderer() {
+    const width = Math.max(220, Math.min(300, stlViewerEl.clientWidth || 300));
+    const height = Math.max(220, Math.min(300, stlViewerEl.clientHeight || width));
+    renderer.setSize(width, height, false);
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+  }
+
+  state.resizeObserver = new ResizeObserver(resizeRenderer);
+  state.resizeObserver.observe(stlViewerEl);
+  resizeRenderer();
+
+  function animate() {
+    if (stlViewerState !== state) {
+      return;
+    }
+    state.animationFrame = requestAnimationFrame(animate);
+    controls?.update();
+    renderer.render(scene, camera);
+  }
+
+  const loader = new THREE.STLLoader();
+  loader.load(
+    stlUrl,
+    (geometry) => {
+      if (stlViewerState !== state) {
+        geometry.dispose();
+        return;
+      }
+      geometry.computeBoundingBox();
+      geometry.computeVertexNormals();
+      const bounds = geometry.boundingBox;
+      const size = new THREE.Vector3();
+      const center = new THREE.Vector3();
+      bounds.getSize(size);
+      bounds.getCenter(center);
+      geometry.translate(-center.x, -center.y, -center.z);
+
+      const maxDimension = Math.max(size.x, size.y, size.z, 1);
+      const material = new THREE.MeshStandardMaterial({
+        color: 0x9fc7bd,
+        metalness: 0.28,
+        roughness: 0.46
+      });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.name = label;
+      scene.add(mesh);
+
+      camera.position.set(maxDimension * 0.95, -maxDimension * 1.25, maxDimension * 0.72);
+      camera.near = Math.max(maxDimension / 1000, 0.1);
+      camera.far = maxDimension * 12;
+      camera.lookAt(0, 0, 0);
+      camera.updateProjectionMatrix();
+      if (controls) {
+        controls.target.set(0, 0, 0);
+        controls.maxDistance = maxDimension * 5;
+        controls.update();
+      }
+
+      state.geometry = geometry;
+      state.material = material;
+      stlPreviewStatusEl.textContent = label;
+      animate();
+    },
+    undefined,
+    () => {
+      if (stlViewerState !== state) {
+        return;
+      }
+      stlPreviewStatusEl.textContent = "Preview failed";
+      stlViewerEl.innerHTML = '<div class="muted preview-message">Could not load STL preview</div>';
+    }
+  );
+}
+
 function renderResults(job) {
   const module = job.module || "rocket-engine";
   activeJobEl.textContent = `${moduleLabel(module)} - ${job.job_id}`;
@@ -198,6 +348,7 @@ function renderResults(job) {
     step: "Download STEP",
     report: "Download PDF"
   }) || "No artifacts available";
+  renderSTLPreview(job.files?.stl, `${moduleLabel(module)} - ${job.job_id}`);
 }
 
 function applyHistoryFilters() {

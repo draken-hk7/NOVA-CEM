@@ -205,6 +205,14 @@
             </article>
           </div>
 
+          <section id="stl-preview-section" class="stl-preview-section" hidden>
+            <div class="panel-heading preview-heading">
+              <h2>3D Preview</h2>
+              <span id="stl-preview-status" class="muted">No STL</span>
+            </div>
+            <div id="stl-viewer" class="stl-viewer" aria-label="3D STL preview"></div>
+          </section>
+
           <div class="validation">
             <h2>Validation</h2>
             <div id="validation-results" class="validation-results muted">No validation run</div>
@@ -274,6 +282,9 @@
       </section>
     </main>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/examples/js/loaders/STLLoader.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/examples/js/controls/OrbitControls.js"></script>
     <script src="/static/app.js"></script>
   </body>
 </html>
