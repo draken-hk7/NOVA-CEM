@@ -341,9 +341,17 @@ def test_dashboard_includes_mission_tab_and_metrics():
 
     assert 'id="mission-tab"' in html
     assert 'id="mission-form"' in html
+    assert '<select id="mission_engine_job_id" name="engine_job_id" required>' in html
+    assert 'id="mission_vehicle_mass_kg" name="vehicle_mass_kg" type="number" min="0.001" step="any"' in html
+    assert 'id="mission_propellant_mass_kg" name="propellant_mass_kg" type="number" min="0.001" step="any"' in html
     assert 'id="mission-result-cards"' in html
     assert '<option value="mission">Mission</option>' in html
     assert 'fetch("/api/mission"' in js
+    assert "populateMissionEngineOptions();" in js
+    assert "missionEngineLabel(job)" in js
+    assert "option.value = job.job_id" in js
+    assert "option.textContent = missionEngineLabel(job)" in js
+    assert "kerolox|methalox|hydrolox" in js
     assert "delta_v_m_s" in js
     assert "hydrogen_mass_needed_kg_s" in js
     assert "renderMissionResults(payload.job)" in js

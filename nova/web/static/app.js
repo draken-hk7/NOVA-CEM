@@ -24,6 +24,7 @@ const stlPreviewStatusEl = document.querySelector("#stl-preview-status");
 const tabButtons = document.querySelectorAll(".tab-button");
 const tabPanels = document.querySelectorAll("[data-tab-panel]");
 const missionFormEl = document.querySelector("#mission-form");
+const missionEngineJobSelectEl = document.querySelector("#mission_engine_job_id");
 const missionButtonEl = document.querySelector("#mission-button");
 const missionErrorEl = document.querySelector("#mission-error");
 const missionActiveJobEl = document.querySelector("#mission-active-job");
@@ -210,6 +211,67 @@ function formatValue(value) {
     return value ?? "--";
   }
   return numberFormat.format(value);
+}
+
+function formatCompactNumber(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? (Number.isInteger(value) ? String(value) : numberFormat.format(value)) : "--";
+  }
+  return value ?? "--";
+}
+
+function parseEngineJobTokens(jobId) {
+  const match = String(jobId || "").match(/(kerolox|methalox|hydrolox|hypergolic|solid)[_-]([0-9]+(?:p[0-9]+|\.[0-9]+)?)N[_-]([0-9]+(?:p[0-9]+|\.[0-9]+)?)bar/i);
+  if (!match) {
+    return {};
+  }
+  return {
+    propellant: match[1].toLowerCase(),
+    thrust_N: Number(match[2].replace("p", ".")),
+    chamber_pressure_bar: Number(match[3].replace("p", "."))
+  };
+}
+
+function compactJobTime(job) {
+  const created = new Date(job.created_at);
+  if (!Number.isNaN(created.getTime())) {
+    return created.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  }
+  const match = String(job.job_id || "").match(/_(\d{4}-\d{2}-\d{2})_(\d{2})(\d{2})(?:\d{2})?/);
+  return match ? `${match[2]}:${match[3]}` : "--:--";
+}
+
+function missionEngineLabel(job) {
+  const parsed = parseEngineJobTokens(job.job_id);
+  const parameters = job.parameters || {};
+  const propellant = parameters.propellant || parsed.propellant || "engine";
+  const thrust = Number(parameters.thrust_N ?? job.metrics?.thrust_N ?? parsed.thrust_N);
+  const pressure = Number(parameters.chamber_pressure_bar ?? parsed.chamber_pressure_bar);
+  return `${propellant} ${formatCompactNumber(thrust)}N ${formatCompactNumber(pressure)}bar ${compactJobTime(job)}`;
+}
+
+function populateMissionEngineOptions() {
+  const previousValue = missionEngineJobSelectEl.value;
+  const engineJobs = allJobs.filter((job) => (job.module || "rocket-engine") === "rocket-engine");
+  missionEngineJobSelectEl.replaceChildren();
+
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = engineJobs.length ? "Select a rocket engine job" : "No rocket engine jobs yet";
+  missionEngineJobSelectEl.appendChild(placeholder);
+
+  for (const job of engineJobs) {
+    const option = document.createElement("option");
+    option.value = job.job_id;
+    option.textContent = missionEngineLabel(job);
+    option.title = job.job_id;
+    missionEngineJobSelectEl.appendChild(option);
+  }
+
+  if (engineJobs.some((job) => job.job_id === previousValue)) {
+    missionEngineJobSelectEl.value = previousValue;
+  }
+  missionEngineJobSelectEl.disabled = !engineJobs.length;
 }
 
 function renderValidation(validation) {
@@ -636,6 +698,7 @@ async function loadHistory() {
   }
   const payload = await response.json();
   allJobs = payload.jobs || [];
+  populateMissionEngineOptions();
   renderFilteredHistory();
 }
 

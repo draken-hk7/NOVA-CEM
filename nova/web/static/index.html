@@ -298,13 +298,15 @@
 
             <label>
               <span>Engine Job ID</span>
-              <input id="mission_engine_job_id" name="engine_job_id" type="text" placeholder="rocket-engine_hydrolox_5000N_50bar..." required>
+              <select id="mission_engine_job_id" name="engine_job_id" required>
+                <option value="">Loading rocket engine jobs...</option>
+              </select>
             </label>
 
             <label>
               <span>Vehicle Dry Mass</span>
               <div class="unit-input">
-                <input id="mission_vehicle_mass_kg" name="vehicle_mass_kg" type="number" min="0.001" step="0.1" value="50" required>
+                <input id="mission_vehicle_mass_kg" name="vehicle_mass_kg" type="number" min="0.001" step="any" value="50" required>
                 <span>kg</span>
               </div>
             </label>
@@ -312,7 +314,7 @@
             <label>
               <span>Propellant Mass</span>
               <div class="unit-input">
-                <input id="mission_propellant_mass_kg" name="propellant_mass_kg" type="number" min="0.001" step="0.1" value="20" required>
+                <input id="mission_propellant_mass_kg" name="propellant_mass_kg" type="number" min="0.001" step="any" value="20" required>
                 <span>kg</span>
               </div>
             </label>
