@@ -257,13 +257,14 @@ async def delete_job(job_id: str) -> dict:
 
 
 @app.get("/download/{job_id}/{artifact}")
-async def download_artifact(job_id: str, artifact: Literal["stl", "step", "report"]) -> FileResponse:
+async def download_artifact(job_id: str, artifact: Literal["stl", "step", "report", "thermal_map"]) -> FileResponse:
     record = _find_job(job_id)
     path = _artifact_path(record, artifact)
     media_types = {
         "stl": "model/stl",
         "step": "application/step",
         "report": "application/pdf",
+        "thermal_map": "image/svg+xml",
     }
     return FileResponse(path, media_type=media_types[artifact], filename=path.name)
 
@@ -392,6 +393,8 @@ def _download_urls(job_id: str, files: dict[str, str]) -> dict[str, str]:
         urls["stl"] = f"/download/{job_id}/stl"
     if "step" in files:
         urls["step"] = f"/download/{job_id}/step"
+    if "thermal_map" in files:
+        urls["thermal_map"] = f"/download/{job_id}/thermal_map"
     return urls
 
 
@@ -405,7 +408,20 @@ def _public_record(record: dict) -> dict:
         "metrics": record["metrics"],
         "validation": record.get("validation"),
         "files": record["files"],
+        "size_bytes": _job_size_bytes(record),
     }
+
+
+def _job_size_bytes(record: dict) -> int:
+    total = 0
+    for value in record.get("artifact_paths", {}).values():
+        path = Path(value)
+        try:
+            if path.exists() and path.is_file():
+                total += path.stat().st_size
+        except OSError:
+            continue
+    return total
 
 
 def _validation_results(design: object) -> dict:

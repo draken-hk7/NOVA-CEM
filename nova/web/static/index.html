@@ -9,362 +9,409 @@
   <body>
     <main class="shell">
       <header class="topbar">
-        <div>
-          <p class="eyebrow">NOVA-CEM</p>
-          <h1>Design Dashboard</h1>
+        <div class="brand-lockup" aria-label="NOVA-CEM dashboard">
+          <div class="brand-mark" aria-hidden="true">N</div>
+          <div>
+            <p class="eyebrow">NOVA-CEM</p>
+            <h1>Design Dashboard</h1>
+          </div>
         </div>
         <div class="topbar-actions">
+          <div id="server-status" class="server-status" data-state="checking" role="status">Server checking</div>
           <button id="theme-toggle" class="secondary" type="button">Dark Mode</button>
-          <div id="status" class="status" role="status">Ready</div>
         </div>
       </header>
 
-      <nav class="dashboard-tabs" aria-label="Dashboard views">
-        <button class="tab-button active" type="button" data-tab-target="design-tab">Design</button>
-        <button class="tab-button" type="button" data-tab-target="mission-tab">Mission</button>
-      </nav>
+      <section class="summary-strip" aria-label="Dashboard status">
+        <article>
+          <span>Total Jobs</span>
+          <strong id="summary-total-jobs">0</strong>
+        </article>
+        <article>
+          <span>Total Engines</span>
+          <strong id="summary-total-engines">0</strong>
+        </article>
+        <article>
+          <span>Last Design</span>
+          <strong id="summary-last-design">No jobs</strong>
+        </article>
+        <article>
+          <span>Run Status</span>
+          <strong id="status">Ready</strong>
+        </article>
+      </section>
 
-      <section id="design-tab" class="tab-panel active" data-tab-panel>
-        <section class="workspace" aria-label="NOVA design workspace">
-          <div class="form-stack">
-            <form id="engine-form" class="panel design-form">
-            <div class="panel-heading">
-              <h2>Rocket Engine</h2>
-            </div>
+      <div class="dashboard-layout">
+        <aside class="sidebar">
+          <nav class="dashboard-tabs" aria-label="Dashboard modules">
+            <button class="tab-button active" type="button" data-tab-target="design-view" data-module-target="rocket-engine">Rocket Engine</button>
+            <button class="tab-button" type="button" data-tab-target="design-view" data-module-target="heat-exchanger">Heat Exchanger</button>
+            <button class="tab-button" type="button" data-tab-target="design-view" data-module-target="actuator">Actuator</button>
+            <button class="tab-button" type="button" data-tab-target="mission-view">Mission Calculator</button>
+            <button class="tab-button" type="button" data-tab-target="history-view">Job History</button>
+            <button class="tab-button" type="button" data-tab-target="analytics-view">Analytics</button>
+          </nav>
+        </aside>
 
-            <label>
-              <span>Propellant</span>
-              <select id="engine_propellant" name="propellant">
-                <option value="kerolox">Kerolox</option>
-                <option value="methalox">Methalox</option>
-                <option value="hydrolox">Hydrolox</option>
-              </select>
-            </label>
+        <section class="main-content">
+          <section id="design-view" class="tab-panel active" data-tab-panel>
+            <section class="workspace" aria-label="NOVA design workspace">
+              <div class="form-stack">
+                <form id="engine-form" class="panel design-form module-form active" data-module-form="rocket-engine">
+                  <div class="panel-heading">
+                    <h2>Rocket Engine</h2>
+                  </div>
 
-            <label>
-              <span>Thrust</span>
-              <div class="unit-input">
-                <input id="engine_thrust_N" name="thrust_N" type="number" min="1" step="1" value="5000" required>
-                <span>N</span>
+                  <label>
+                    <span>Propellant</span>
+                    <select id="engine_propellant" name="propellant">
+                      <option value="kerolox">Kerolox</option>
+                      <option value="methalox">Methalox</option>
+                      <option value="hydrolox">Hydrolox</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    <span>Thrust</span>
+                    <div class="unit-input">
+                      <input id="engine_thrust_N" name="thrust_N" type="number" min="1" step="any" value="5000" required>
+                      <span>N</span>
+                    </div>
+                  </label>
+
+                  <label>
+                    <span>Chamber Pressure</span>
+                    <div class="unit-input">
+                      <input id="engine_chamber_pressure_bar" name="chamber_pressure_bar" type="number" min="1" step="any" value="50" required>
+                      <span>bar</span>
+                    </div>
+                  </label>
+
+                  <label>
+                    <span>Material</span>
+                    <select id="engine_material" name="material">
+                      <option value="inconel">Inconel</option>
+                      <option value="copper">Copper</option>
+                    </select>
+                  </label>
+
+                  <button id="engine-button" type="submit">Design Engine</button>
+                </form>
+
+                <form id="hx-form" class="panel design-form module-form" data-module-form="heat-exchanger" hidden>
+                  <div class="panel-heading">
+                    <h2>Heat Exchanger</h2>
+                  </div>
+
+                  <label>
+                    <span>Hot Fluid</span>
+                    <select id="hx_hot_fluid" name="hot_fluid">
+                      <option value="exhaust">Exhaust</option>
+                      <option value="air">Air</option>
+                      <option value="water">Water</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    <span>Cold Fluid</span>
+                    <select id="hx_cold_fluid" name="cold_fluid">
+                      <option value="hydrogen">Hydrogen</option>
+                      <option value="water">Water</option>
+                      <option value="helium">Helium</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    <span>Duty</span>
+                    <div class="unit-input">
+                      <input id="hx_duty_kW" name="duty_kW" type="number" min="0.001" step="any" value="10" required>
+                      <span>kW</span>
+                    </div>
+                  </label>
+
+                  <label>
+                    <span>Hot Inlet Temp</span>
+                    <div class="unit-input">
+                      <input id="hx_hot_inlet_temp_C" name="hot_inlet_temp_C" type="number" step="any" value="800" required>
+                      <span>C</span>
+                    </div>
+                  </label>
+
+                  <label>
+                    <span>Hot Outlet Temp</span>
+                    <div class="unit-input">
+                      <input id="hx_hot_outlet_temp_C" name="hot_outlet_temp_C" type="number" step="any" value="200" required>
+                      <span>C</span>
+                    </div>
+                  </label>
+
+                  <label>
+                    <span>Cold Inlet Temp</span>
+                    <div class="unit-input">
+                      <input id="hx_cold_inlet_temp_C" name="cold_inlet_temp_C" type="number" step="any" value="20" required>
+                      <span>C</span>
+                    </div>
+                  </label>
+
+                  <button id="hx-button" type="submit">Design Heat Exchanger</button>
+                </form>
+
+                <form id="actuator-form" class="panel design-form module-form" data-module-form="actuator" hidden>
+                  <div class="panel-heading">
+                    <h2>Actuator</h2>
+                  </div>
+
+                  <label>
+                    <span>Force</span>
+                    <div class="unit-input">
+                      <input id="actuator_force_N" name="force_N" type="number" min="0.1" step="any" value="50" required>
+                      <span>N</span>
+                    </div>
+                  </label>
+
+                  <label>
+                    <span>Stroke</span>
+                    <div class="unit-input">
+                      <input id="actuator_stroke_mm" name="stroke_mm" type="number" min="0.1" step="any" value="10" required>
+                      <span>mm</span>
+                    </div>
+                  </label>
+
+                  <label>
+                    <span>Voltage</span>
+                    <div class="unit-input">
+                      <input id="actuator_voltage_V" name="voltage_V" type="number" min="0.1" step="any" value="24" required>
+                      <span>V</span>
+                    </div>
+                  </label>
+
+                  <label>
+                    <span>Response Time</span>
+                    <div class="unit-input">
+                      <input id="actuator_response_time_ms" name="response_time_ms" type="number" min="0.1" step="any" value="50" required>
+                      <span>ms</span>
+                    </div>
+                  </label>
+
+                  <label>
+                    <span>Material</span>
+                    <select id="actuator_material" name="material">
+                      <option value="steel">Steel</option>
+                      <option value="inconel">Inconel</option>
+                      <option value="aluminum">Aluminum</option>
+                    </select>
+                  </label>
+
+                  <button id="actuator-button" type="submit">Design Actuator</button>
+                </form>
+
+                <p id="error" class="error" hidden></p>
               </div>
-            </label>
 
-            <label>
-              <span>Chamber Pressure</span>
-              <div class="unit-input">
-                <input id="engine_chamber_pressure_bar" name="chamber_pressure_bar" type="number" min="1" step="0.1" value="50" required>
-                <span>bar</span>
-              </div>
-            </label>
+              <section class="panel results-panel" aria-live="polite">
+                <div class="panel-heading">
+                  <h2>Results</h2>
+                  <span id="active-job" class="muted">No active job</span>
+                </div>
+                <div id="result-cards" class="cards">
+                  <article class="metric-card empty">
+                    <span class="metric-label">Isp</span>
+                    <strong>--</strong>
+                    <span class="metric-unit">s</span>
+                  </article>
+                  <article class="metric-card empty">
+                    <span class="metric-label">Thrust</span>
+                    <strong>--</strong>
+                    <span class="metric-unit">N</span>
+                  </article>
+                  <article class="metric-card empty">
+                    <span class="metric-label">Mass</span>
+                    <strong>--</strong>
+                    <span class="metric-unit">kg</span>
+                  </article>
+                </div>
 
-            <label>
-              <span>Material</span>
-              <select id="engine_material" name="material">
-                <option value="inconel">Inconel</option>
-                <option value="copper">Copper</option>
-              </select>
-            </label>
+                <section id="stl-preview-section" class="stl-preview-section" hidden>
+                  <div class="panel-heading preview-heading">
+                    <h2>3D Preview</h2>
+                    <div class="preview-actions">
+                      <span id="stl-preview-status" class="muted">No STL</span>
+                      <button id="stl-fullscreen-button" class="secondary viewer-action" type="button" hidden>Fullscreen</button>
+                    </div>
+                  </div>
+                  <div id="stl-viewer" class="stl-viewer" aria-label="3D STL preview"></div>
+                </section>
 
-            <button id="engine-button" type="submit">Design Engine</button>
-            </form>
+                <div class="validation">
+                  <h2>Structural Validation</h2>
+                  <div id="validation-results" class="validation-results muted">No validation run</div>
+                </div>
 
-            <form id="hx-form" class="panel design-form">
-            <div class="panel-heading">
-              <h2>Heat Exchanger</h2>
-            </div>
-
-            <label>
-              <span>Hot Fluid</span>
-              <select id="hx_hot_fluid" name="hot_fluid">
-                <option value="exhaust">Exhaust</option>
-                <option value="air">Air</option>
-                <option value="water">Water</option>
-              </select>
-            </label>
-
-            <label>
-              <span>Cold Fluid</span>
-              <select id="hx_cold_fluid" name="cold_fluid">
-                <option value="hydrogen">Hydrogen</option>
-                <option value="water">Water</option>
-                <option value="helium">Helium</option>
-              </select>
-            </label>
-
-            <label>
-              <span>Duty</span>
-              <div class="unit-input">
-                <input id="hx_duty_kW" name="duty_kW" type="number" min="0.001" step="0.1" value="10" required>
-                <span>kW</span>
-              </div>
-            </label>
-
-            <label>
-              <span>Hot Inlet Temp</span>
-              <div class="unit-input">
-                <input id="hx_hot_inlet_temp_C" name="hot_inlet_temp_C" type="number" step="1" value="800" required>
-                <span>C</span>
-              </div>
-            </label>
-
-            <label>
-              <span>Hot Outlet Temp</span>
-              <div class="unit-input">
-                <input id="hx_hot_outlet_temp_C" name="hot_outlet_temp_C" type="number" step="1" value="200" required>
-                <span>C</span>
-              </div>
-            </label>
-
-            <label>
-              <span>Cold Inlet Temp</span>
-              <div class="unit-input">
-                <input id="hx_cold_inlet_temp_C" name="cold_inlet_temp_C" type="number" step="1" value="20" required>
-                <span>C</span>
-              </div>
-            </label>
-
-            <button id="hx-button" type="submit">Design Heat Exchanger</button>
-            </form>
-
-            <form id="actuator-form" class="panel design-form">
-            <div class="panel-heading">
-              <h2>Actuator</h2>
-            </div>
-
-            <label>
-              <span>Force</span>
-              <div class="unit-input">
-                <input id="actuator_force_N" name="force_N" type="number" min="0.1" step="0.1" value="50" required>
-                <span>N</span>
-              </div>
-            </label>
-
-            <label>
-              <span>Stroke</span>
-              <div class="unit-input">
-                <input id="actuator_stroke_mm" name="stroke_mm" type="number" min="0.1" step="0.1" value="10" required>
-                <span>mm</span>
-              </div>
-            </label>
-
-            <label>
-              <span>Voltage</span>
-              <div class="unit-input">
-                <input id="actuator_voltage_V" name="voltage_V" type="number" min="0.1" step="0.1" value="24" required>
-                <span>V</span>
-              </div>
-            </label>
-
-            <label>
-              <span>Response Time</span>
-              <div class="unit-input">
-                <input id="actuator_response_time_ms" name="response_time_ms" type="number" min="0.1" step="1" value="50" required>
-                <span>ms</span>
-              </div>
-            </label>
-
-            <label>
-              <span>Material</span>
-              <select id="actuator_material" name="material">
-                <option value="steel">Steel</option>
-                <option value="inconel">Inconel</option>
-                <option value="aluminum">Aluminum</option>
-              </select>
-            </label>
-
-            <button id="actuator-button" type="submit">Design Actuator</button>
-            </form>
-
-            <p id="error" class="error" hidden></p>
-          </div>
-
-          <section class="panel results-panel" aria-live="polite">
-          <div class="panel-heading">
-            <h2>Results</h2>
-            <span id="active-job" class="muted">No active job</span>
-          </div>
-          <div id="result-cards" class="cards">
-            <article class="metric-card empty">
-              <span class="metric-label">Isp</span>
-              <strong>--</strong>
-              <span class="metric-unit">s</span>
-            </article>
-            <article class="metric-card empty">
-              <span class="metric-label">Thrust</span>
-              <strong>--</strong>
-              <span class="metric-unit">N</span>
-            </article>
-            <article class="metric-card empty">
-              <span class="metric-label">Chamber Temp</span>
-              <strong>--</strong>
-              <span class="metric-unit">K</span>
-            </article>
-            <article class="metric-card empty">
-              <span class="metric-label">Engine Mass</span>
-              <strong>--</strong>
-              <span class="metric-unit">kg</span>
-            </article>
-            <article class="metric-card empty">
-              <span class="metric-label">Print Time</span>
-              <strong>--</strong>
-              <span class="metric-unit">h</span>
-            </article>
-          </div>
-
-          <section id="stl-preview-section" class="stl-preview-section" hidden>
-            <div class="panel-heading preview-heading">
-              <h2>3D Preview</h2>
-              <div class="preview-actions">
-                <span id="stl-preview-status" class="muted">No STL</span>
-                <button id="stl-fullscreen-button" class="secondary viewer-action" type="button" hidden>Fullscreen</button>
-              </div>
-            </div>
-            <div id="stl-viewer" class="stl-viewer" aria-label="3D STL preview"></div>
+                <div class="downloads">
+                  <h2>Downloads</h2>
+                  <div id="download-buttons" class="download-buttons muted">No artifacts available</div>
+                </div>
+              </section>
+            </section>
           </section>
 
-          <div class="validation">
-            <h2>Validation</h2>
-            <div id="validation-results" class="validation-results muted">No validation run</div>
-          </div>
+          <section id="mission-view" class="tab-panel" data-tab-panel hidden>
+            <section class="mission-workspace" aria-label="NOVA mission calculator">
+              <form id="mission-form" class="panel mission-form">
+                <div class="panel-heading">
+                  <h2>Mission Calculator</h2>
+                </div>
 
-          <div class="downloads">
-            <h2>Downloads</h2>
-            <div id="download-buttons" class="download-buttons muted">No artifacts available</div>
-          </div>
+                <label>
+                  <span>Engine Job ID</span>
+                  <select id="mission_engine_job_id" name="engine_job_id" required>
+                    <option value="">Loading rocket engine jobs...</option>
+                  </select>
+                </label>
+
+                <label>
+                  <span>Vehicle Dry Mass</span>
+                  <div class="unit-input">
+                    <input id="mission_vehicle_mass_kg" name="vehicle_mass_kg" type="number" min="0.001" step="any" value="50" required>
+                    <span>kg</span>
+                  </div>
+                </label>
+
+                <label>
+                  <span>Propellant Mass</span>
+                  <div class="unit-input">
+                    <input id="mission_propellant_mass_kg" name="propellant_mass_kg" type="number" min="0.001" step="any" value="20" required>
+                    <span>kg</span>
+                  </div>
+                </label>
+
+                <button id="mission-button" type="submit">Calculate Mission</button>
+                <p id="mission-error" class="error" hidden></p>
+              </form>
+
+              <section class="panel results-panel mission-results" aria-live="polite">
+                <div class="panel-heading">
+                  <h2>Mission Results</h2>
+                  <span id="mission-active-job" class="muted">No mission run</span>
+                </div>
+                <div id="mission-result-cards" class="cards">
+                  <article class="metric-card empty">
+                    <span class="metric-label">Delta-V</span>
+                    <strong>--</strong>
+                    <span class="metric-unit">m/s</span>
+                  </article>
+                  <article class="metric-card empty">
+                    <span class="metric-label">Burn Time</span>
+                    <strong>--</strong>
+                    <span class="metric-unit">s</span>
+                  </article>
+                  <article class="metric-card empty">
+                    <span class="metric-label">T/W</span>
+                    <strong>--</strong>
+                    <span class="metric-unit">ratio</span>
+                  </article>
+                  <article class="metric-card empty">
+                    <span class="metric-label">Max Altitude</span>
+                    <strong>--</strong>
+                    <span class="metric-unit">m</span>
+                  </article>
+                  <article class="metric-card empty">
+                    <span class="metric-label">H2 Flow</span>
+                    <strong>--</strong>
+                    <span class="metric-unit">kg/s</span>
+                  </article>
+                </div>
+
+                <div class="downloads">
+                  <h2>Downloads</h2>
+                  <div id="mission-download-buttons" class="download-buttons muted">No mission report available</div>
+                </div>
+              </section>
+            </section>
+          </section>
+
+          <section id="history-view" class="tab-panel" data-tab-panel hidden>
+            <section class="panel history-panel">
+              <div class="panel-heading">
+                <h2>Job History</h2>
+                <div class="history-toolbar-actions">
+                  <a id="export-history" class="secondary link-button" href="/api/history/export.csv">Export History</a>
+                  <button id="refresh-history" class="secondary" type="button">Refresh</button>
+                </div>
+              </div>
+              <div class="history-controls" aria-label="History filters">
+                <label>
+                  <span>Search</span>
+                  <input id="history-search" type="search" placeholder="Job, module, material">
+                </label>
+                <label>
+                  <span>Module</span>
+                  <select id="module-filter">
+                    <option value="">All modules</option>
+                    <option value="rocket-engine">Rocket Engine</option>
+                    <option value="heat-exchanger">Heat Exchanger</option>
+                    <option value="actuator">Actuator</option>
+                    <option value="mission">Mission</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Propellant</span>
+                  <select id="propellant-filter">
+                    <option value="">All propellants</option>
+                    <option value="kerolox">Kerolox</option>
+                    <option value="methalox">Methalox</option>
+                    <option value="hydrolox">Hydrolox</option>
+                  </select>
+                </label>
+                <label>
+                  <span>From</span>
+                  <input id="date-from-filter" type="date">
+                </label>
+                <label>
+                  <span>To</span>
+                  <input id="date-to-filter" type="date">
+                </label>
+              </div>
+              <div class="compare-controls">
+                <span id="compare-count" class="muted">0 selected</span>
+                <button id="compare-button" class="secondary" type="button" disabled>Compare</button>
+                <button id="clear-compare" class="secondary" type="button">Clear</button>
+              </div>
+              <div class="history-table-wrap">
+                <table class="history-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Module</th>
+                      <th>Date</th>
+                      <th>Key Metric</th>
+                      <th>Size</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="history-list"></tbody>
+                </table>
+              </div>
+            </section>
+          </section>
+
+          <section id="analytics-view" class="tab-panel" data-tab-panel hidden>
+            <section class="panel analytics-panel">
+              <div class="panel-heading">
+                <h2>Analytics</h2>
+              </div>
+              <p class="muted">Analytics workspace placeholder for future fleet-level NOVA design insights.</p>
+            </section>
           </section>
         </section>
+      </div>
 
-        <section class="panel history-panel">
-        <div class="panel-heading">
-          <h2>Job History</h2>
-          <div class="history-toolbar-actions">
-            <a id="export-history" class="secondary link-button" href="/api/history/export.csv">Export History</a>
-            <button id="refresh-history" class="secondary" type="button">Refresh</button>
-          </div>
-        </div>
-        <div class="history-controls" aria-label="History filters">
-          <label>
-            <span>Search</span>
-            <input id="history-search" type="search" placeholder="Job, module, material">
-          </label>
-          <label>
-            <span>Module</span>
-            <select id="module-filter">
-              <option value="">All modules</option>
-              <option value="rocket-engine">Rocket Engine</option>
-              <option value="heat-exchanger">Heat Exchanger</option>
-              <option value="actuator">Actuator</option>
-              <option value="mission">Mission</option>
-            </select>
-          </label>
-          <label>
-            <span>Propellant</span>
-            <select id="propellant-filter">
-              <option value="">All propellants</option>
-              <option value="kerolox">Kerolox</option>
-              <option value="methalox">Methalox</option>
-              <option value="hydrolox">Hydrolox</option>
-            </select>
-          </label>
-          <label>
-            <span>From</span>
-            <input id="date-from-filter" type="date">
-          </label>
-          <label>
-            <span>To</span>
-            <input id="date-to-filter" type="date">
-          </label>
-        </div>
-        <div class="compare-controls">
-          <span id="compare-count" class="muted">0 selected</span>
-          <button id="compare-button" class="secondary" type="button" disabled>Compare</button>
-          <button id="clear-compare" class="secondary" type="button">Clear</button>
-        </div>
-        <div id="history-list" class="history-list"></div>
-        </section>
-
-        <section id="compare-panel" class="panel compare-panel" hidden>
+      <section id="compare-panel" class="panel compare-panel" hidden>
         <div class="panel-heading">
           <h2>Compare Jobs</h2>
           <button id="close-compare" class="secondary" type="button">Close</button>
         </div>
         <div id="compare-content" class="compare-content"></div>
-        </section>
-      </section>
-
-      <section id="mission-tab" class="tab-panel" data-tab-panel hidden>
-        <section class="mission-workspace" aria-label="NOVA mission calculator">
-          <form id="mission-form" class="panel mission-form">
-            <div class="panel-heading">
-              <h2>Mission Calculator</h2>
-            </div>
-
-            <label>
-              <span>Engine Job ID</span>
-              <select id="mission_engine_job_id" name="engine_job_id" required>
-                <option value="">Loading rocket engine jobs...</option>
-              </select>
-            </label>
-
-            <label>
-              <span>Vehicle Dry Mass</span>
-              <div class="unit-input">
-                <input id="mission_vehicle_mass_kg" name="vehicle_mass_kg" type="number" min="0.001" step="any" value="50" required>
-                <span>kg</span>
-              </div>
-            </label>
-
-            <label>
-              <span>Propellant Mass</span>
-              <div class="unit-input">
-                <input id="mission_propellant_mass_kg" name="propellant_mass_kg" type="number" min="0.001" step="any" value="20" required>
-                <span>kg</span>
-              </div>
-            </label>
-
-            <button id="mission-button" type="submit">Calculate Mission</button>
-            <p id="mission-error" class="error" hidden></p>
-          </form>
-
-          <section class="panel results-panel mission-results" aria-live="polite">
-            <div class="panel-heading">
-              <h2>Mission Results</h2>
-              <span id="mission-active-job" class="muted">No mission run</span>
-            </div>
-            <div id="mission-result-cards" class="cards">
-              <article class="metric-card empty">
-                <span class="metric-label">Delta-V</span>
-                <strong>--</strong>
-                <span class="metric-unit">m/s</span>
-              </article>
-              <article class="metric-card empty">
-                <span class="metric-label">Burn Time</span>
-                <strong>--</strong>
-                <span class="metric-unit">s</span>
-              </article>
-              <article class="metric-card empty">
-                <span class="metric-label">T/W</span>
-                <strong>--</strong>
-                <span class="metric-unit">ratio</span>
-              </article>
-              <article class="metric-card empty">
-                <span class="metric-label">Max Altitude</span>
-                <strong>--</strong>
-                <span class="metric-unit">m</span>
-              </article>
-              <article class="metric-card empty">
-                <span class="metric-label">H2 Flow</span>
-                <strong>--</strong>
-                <span class="metric-unit">kg/s</span>
-              </article>
-            </div>
-
-            <div class="downloads">
-              <h2>Downloads</h2>
-              <div id="mission-download-buttons" class="download-buttons muted">No mission report available</div>
-            </div>
-          </section>
-        </section>
       </section>
     </main>
 

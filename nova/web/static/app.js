@@ -1,4 +1,8 @@
 const statusEl = document.querySelector("#status");
+const serverStatusEl = document.querySelector("#server-status");
+const summaryTotalJobsEl = document.querySelector("#summary-total-jobs");
+const summaryTotalEnginesEl = document.querySelector("#summary-total-engines");
+const summaryLastDesignEl = document.querySelector("#summary-last-design");
 const errorEl = document.querySelector("#error");
 const activeJobEl = document.querySelector("#active-job");
 const resultCardsEl = document.querySelector("#result-cards");
@@ -24,6 +28,7 @@ const stlPreviewStatusEl = document.querySelector("#stl-preview-status");
 const stlFullscreenButton = document.querySelector("#stl-fullscreen-button");
 const tabButtons = document.querySelectorAll(".tab-button");
 const tabPanels = document.querySelectorAll("[data-tab-panel]");
+const moduleForms = document.querySelectorAll("[data-module-form]");
 const missionFormEl = document.querySelector("#mission-form");
 const missionEngineJobSelectEl = document.querySelector("#mission_engine_job_id");
 const missionButtonEl = document.querySelector("#mission-button");
@@ -47,6 +52,7 @@ let stlViewerState = null;
 let threeViewerLibrariesPromise = null;
 let pendingDeleteJobId = "";
 let deleteModalPreviousFocus = null;
+let activeDesignModule = "rocket-engine";
 
 const THREE_VIEWER_SCRIPTS = [
   {
@@ -154,6 +160,11 @@ function setStatus(text) {
   statusEl.textContent = text;
 }
 
+function setServerStatus(online, text = "") {
+  serverStatusEl.dataset.state = online ? "online" : "offline";
+  serverStatusEl.textContent = text || (online ? "Server online" : "Server offline");
+}
+
 function setError(message) {
   if (!message) {
     errorEl.hidden = true;
@@ -174,17 +185,31 @@ function setMissionError(message) {
   missionErrorEl.textContent = message;
 }
 
-function setActiveTab(targetId) {
+function setActiveModule(module) {
+  activeDesignModule = module || activeDesignModule;
+  moduleForms.forEach((form) => {
+    const active = form.dataset.moduleForm === activeDesignModule;
+    form.hidden = !active;
+    form.classList.toggle("active", active);
+  });
+}
+
+function setActiveTab(targetId, moduleTarget = "") {
   tabPanels.forEach((panel) => {
     const active = panel.id === targetId;
     panel.hidden = !active;
     panel.classList.toggle("active", active);
   });
   tabButtons.forEach((button) => {
-    const active = button.dataset.tabTarget === targetId;
+    const sameView = button.dataset.tabTarget === targetId;
+    const sameModule = !button.dataset.moduleTarget || button.dataset.moduleTarget === (moduleTarget || activeDesignModule);
+    const active = sameView && sameModule;
     button.classList.toggle("active", active);
     button.setAttribute("aria-selected", String(active));
   });
+  if (moduleTarget) {
+    setActiveModule(moduleTarget);
+  }
 }
 
 function escapeHtml(value) {
@@ -226,6 +251,47 @@ function formatCompactNumber(value) {
     return Number.isFinite(value) ? (Number.isInteger(value) ? String(value) : numberFormat.format(value)) : "--";
   }
   return value ?? "--";
+}
+
+function formatDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value || "--";
+  }
+  return date.toLocaleString([], {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function formatBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "--";
+  }
+  const units = ["B", "KB", "MB", "GB"];
+  let size = bytes;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  return `${numberFormat.format(size)} ${units[unitIndex]}`;
+}
+
+function updateDashboardSummary() {
+  const totalJobs = allJobs.length;
+  const totalEngines = allJobs.filter((job) => (job.module || "rocket-engine") === "rocket-engine").length;
+  const datedJobs = allJobs
+    .map((job) => ({ job, date: new Date(job.created_at) }))
+    .filter((item) => !Number.isNaN(item.date.getTime()))
+    .sort((a, b) => b.date - a.date);
+  summaryTotalJobsEl.textContent = String(totalJobs);
+  summaryTotalEnginesEl.textContent = String(totalEngines);
+  summaryLastDesignEl.textContent = datedJobs.length ? formatDateTime(datedJobs[0].job.created_at) : "No jobs";
 }
 
 function parseEngineJobTokens(jobId) {
@@ -307,21 +373,28 @@ function renderValidation(validation) {
   }).join("");
 }
 
-function artifactLinks(files, labels) {
+function artifactDownloadUrl(job, artifact) {
+  if (!job?.files?.[artifact]) {
+    return "";
+  }
+  if (!job.job_id) {
+    return job.files[artifact];
+  }
+  return `/download/${encodeURIComponent(job.job_id)}/${encodeURIComponent(artifact)}`;
+}
+
+function artifactLinks(job, labels) {
   return Object.entries(labels)
-    .filter(([key]) => files?.[key])
-    .map(([key, label]) => `<a href="${escapeHtml(files[key])}">${escapeHtml(label)}</a>`)
+    .filter(([key]) => job?.files?.[key])
+    .map(([key, label]) => {
+      const href = artifactDownloadUrl(job, key);
+      return `<a href="${escapeHtml(href)}" download data-job-id="${escapeHtml(job.job_id)}" data-artifact="${escapeHtml(key)}">${escapeHtml(label)}</a>`;
+    })
     .join("");
 }
 
 function stlDownloadUrl(job) {
-  if (!job?.files?.stl) {
-    return "";
-  }
-  if (!job.job_id) {
-    return job.files.stl;
-  }
-  return `/download/${encodeURIComponent(job.job_id)}/stl`;
+  return artifactDownloadUrl(job, "stl");
 }
 
 function fullscreenSupported() {
@@ -635,9 +708,10 @@ function renderResults(job) {
   renderValidation(job.validation);
 
   downloadButtonsEl.classList.remove("muted");
-  downloadButtonsEl.innerHTML = artifactLinks(job.files, {
+  downloadButtonsEl.innerHTML = artifactLinks(job, {
     stl: "Download STL",
     step: "Download STEP",
+    thermal_map: "Download Thermal Map",
     report: "Download PDF"
   }) || "No artifacts available";
   renderSTLPreview(stlDownloadUrl(job), `${moduleLabel(module)} - ${job.job_id}`);
@@ -660,7 +734,7 @@ function renderMissionResults(job) {
   missionActiveJobEl.textContent = `${moduleLabel(job.module)} - ${job.job_id}`;
   renderMetricCards(missionResultCardsEl, "mission", job.metrics || {});
   missionDownloadButtonsEl.classList.remove("muted");
-  missionDownloadButtonsEl.innerHTML = artifactLinks(job.files, {
+  missionDownloadButtonsEl.innerHTML = artifactLinks(job, {
     report: "Download PDF"
   }) || "No mission report available";
 }
@@ -710,7 +784,7 @@ function renderHistory(jobs) {
   updateCompareControls();
 
   if (!jobs.length) {
-    historyListEl.innerHTML = '<p class="empty-state">No matching designs.</p>';
+    historyListEl.innerHTML = '<tr><td colspan="6"><p class="empty-state">No matching designs.</p></td></tr>';
     return;
   }
   historyListEl.innerHTML = jobs.map((job) => {
@@ -719,27 +793,59 @@ function renderHistory(jobs) {
     const compareDisabled = selectedJobIds.size >= 3 && !selected;
     const protectedDelete = Boolean(job.starred);
     return `
-      <article class="history-item ${job.starred ? "starred" : ""}">
-        <label class="compare-pick">
-          <input class="compare-checkbox" type="checkbox" data-job-id="${escapeHtml(job.job_id)}" ${selected ? "checked" : ""} ${compareDisabled ? "disabled" : ""}>
-          <span>Compare</span>
-        </label>
-        <div>
-          <p class="history-title">${escapeHtml(moduleLabel(module))} - ${escapeHtml(job.job_id)}</p>
-          <p class="history-meta">${escapeHtml(job.created_at)}</p>
-        </div>
-        <div>
-          <p class="history-meta">${escapeHtml(historyParameters(job))}</p>
-          <p class="history-metrics">${escapeHtml(historyMetrics(job))}</p>
-        </div>
-        <div class="history-actions">
-          ${artifactLinks(job.files, { stl: "STL", step: "STEP", report: "PDF" })}
+      <tr class="history-row ${job.starred ? "starred" : ""}">
+        <td data-label="Name">
+          <label class="compare-pick">
+            <input class="compare-checkbox" type="checkbox" data-job-id="${escapeHtml(job.job_id)}" ${selected ? "checked" : ""} ${compareDisabled ? "disabled" : ""}>
+            <span>
+              <span class="history-name">${escapeHtml(jobDisplayName(job))}</span>
+              <span class="history-id">${escapeHtml(job.job_id)}</span>
+            </span>
+          </label>
+        </td>
+        <td data-label="Module">${escapeHtml(moduleLabel(module))}</td>
+        <td data-label="Date"><span class="history-date">${escapeHtml(formatDateTime(job.created_at))}</span></td>
+        <td data-label="Key Metric"><span class="history-metric">${escapeHtml(historyPrimaryMetric(job))}</span></td>
+        <td data-label="Size"><span class="history-size">${escapeHtml(formatBytes(job.size_bytes))}</span></td>
+        <td data-label="Actions">
+          <div class="history-actions">
+          ${artifactLinks(job, { stl: "STL", step: "STEP", thermal_map: "Thermal", report: "PDF" })}
           <button class="secondary star-action" type="button" data-job-id="${escapeHtml(job.job_id)}">${job.starred ? "Starred" : "Star"}</button>
           <button class="secondary danger-action" type="button" data-job-id="${escapeHtml(job.job_id)}" ${protectedDelete ? "disabled" : ""}>Delete</button>
-        </div>
-      </article>
+          </div>
+        </td>
+      </tr>
     `;
   }).join("");
+}
+
+function jobDisplayName(job) {
+  const module = job.module || "rocket-engine";
+  const p = job.parameters || {};
+  switch (module) {
+    case "heat-exchanger":
+      return `${p.hot_fluid || "hot"} to ${p.cold_fluid || "cold"} heat exchanger`;
+    case "actuator":
+      return `${p.material || "solenoid"} actuator ${formatCompactNumber(p.force_N)} N`;
+    case "mission":
+      return `Mission for ${p.engine_job_id || "engine"}`;
+    default:
+      return `${p.propellant || "engine"} ${formatCompactNumber(p.thrust_N)} N ${formatCompactNumber(p.chamber_pressure_bar)} bar`;
+  }
+}
+
+function historyPrimaryMetric(job) {
+  const m = job.metrics || {};
+  switch (job.module || "rocket-engine") {
+    case "heat-exchanger":
+      return `Effectiveness ${formatValue(m.effectiveness)}, pressure drop ${formatValue(m.pressure_drop_bar)} bar`;
+    case "actuator":
+      return `Force ${formatValue(m.force_output_N)} N, current ${formatValue(m.current_draw_A)} A`;
+    case "mission":
+      return `Delta-V ${formatValue(m.delta_v_m_s)} m/s, T/W ${formatValue(m.thrust_to_weight)}`;
+    default:
+      return `Isp ${formatValue(m.specific_impulse_s)} s, thrust ${formatValue(m.thrust_N)} N`;
+  }
 }
 
 function historyParameters(job) {
@@ -771,14 +877,21 @@ function historyMetrics(job) {
 }
 
 async function loadHistory() {
-  const response = await fetch("/api/history");
-  if (!response.ok) {
-    throw new Error("Could not load job history");
+  try {
+    const response = await fetch("/api/history");
+    if (!response.ok) {
+      throw new Error("Could not load job history");
+    }
+    const payload = await response.json();
+    allJobs = payload.jobs || [];
+    setServerStatus(true);
+    updateDashboardSummary();
+    populateMissionEngineOptions();
+    renderFilteredHistory();
+  } catch (error) {
+    setServerStatus(false);
+    throw error;
   }
-  const payload = await response.json();
-  allJobs = payload.jobs || [];
-  populateMissionEngineOptions();
-  renderFilteredHistory();
 }
 
 function updateCompareControls() {
@@ -976,7 +1089,7 @@ Object.entries(modules).forEach(([module, config]) => {
 
 tabButtons.forEach((button) => {
   button.addEventListener("click", () => {
-    setActiveTab(button.dataset.tabTarget);
+    setActiveTab(button.dataset.tabTarget, button.dataset.moduleTarget || "");
   });
 });
 
@@ -1077,6 +1190,7 @@ refreshHistoryButton.addEventListener("click", async () => {
 });
 
 setTheme(localStorage.getItem("nova-theme") || "light");
+setActiveModule(activeDesignModule);
 loadHistory().catch((error) => {
   setError(error.message);
   setStatus("Failed");

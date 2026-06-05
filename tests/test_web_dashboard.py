@@ -229,6 +229,37 @@ def test_starred_jobs_sort_first_and_public_history_includes_starred(monkeypatch
     assert json.loads(web_main.JOB_INDEX.read_text(encoding="utf-8"))["jobs"][0]["starred"]
 
 
+def test_public_history_includes_size_and_thermal_map_download(monkeypatch):
+    root = _configure_history(monkeypatch, "thermal-size", [])
+    job_dir = root / "engine-a"
+    job_dir.mkdir(parents=True, exist_ok=True)
+    thermal_map = job_dir / "thermal_map.svg"
+    report = job_dir / "report.pdf"
+    thermal_map.write_text("<svg></svg>", encoding="utf-8")
+    report.write_bytes(b"%PDF-1.4")
+    files = {"thermal_map": str(thermal_map), "report": str(report)}
+    web_main._write_history(
+        [
+            {
+                "job_id": "engine-a",
+                "module": "rocket-engine",
+                "created_at": "2026-06-03T12:00:00",
+                "starred": False,
+                "parameters": {"propellant": "kerolox"},
+                "metrics": {"specific_impulse_s": 300.0},
+                "validation": {"passed": True, "checks": []},
+                "files": web_main._download_urls("engine-a", files),
+                "artifact_paths": files,
+            }
+        ]
+    )
+
+    history = asyncio.run(web_main.history())["jobs"]
+
+    assert history[0]["files"]["thermal_map"] == "/download/engine-a/thermal_map"
+    assert history[0]["size_bytes"] == thermal_map.stat().st_size + report.stat().st_size
+
+
 def test_delete_job_removes_folder_and_history_but_blocks_starred(monkeypatch):
     root = _configure_history(
         monkeypatch,
@@ -321,7 +352,10 @@ def test_dashboard_embeds_threejs_stl_viewer_assets():
     assert "ensureThreeViewerLibraries()" in js
     assert "new THREE.STLLoader()" in js
     assert "fetch(stlUrl, { credentials: \"same-origin\" })" in js
-    assert "`/download/${encodeURIComponent(job.job_id)}/stl`" in js
+    assert "`/download/${encodeURIComponent(job.job_id)}/${encodeURIComponent(artifact)}`" in js
+    assert "artifactDownloadUrl(job, \"stl\")" in js
+    assert 'data-artifact="${escapeHtml(key)}"' in js
+    assert "thermal_map: \"Download Thermal Map\"" in js
     assert "STL fetch failed for ${stlUrl}" in js
     assert "Download STL to view in FreeCAD" in js
     assert 'globalName: "THREE.STLLoader"' in js
@@ -334,19 +368,46 @@ def test_dashboard_embeds_threejs_stl_viewer_assets():
     assert "300px" in css
 
 
-def test_dashboard_includes_mission_tab_and_metrics():
+def test_dashboard_includes_sidebar_layout_mission_tab_and_metrics():
     html = (web_main.STATIC_DIR / "index.html").read_text(encoding="utf-8")
     js = (web_main.STATIC_DIR / "app.js").read_text(encoding="utf-8")
     css = (web_main.STATIC_DIR / "styles.css").read_text(encoding="utf-8")
 
-    assert 'id="mission-tab"' in html
+    assert 'class="brand-mark"' in html
+    assert 'id="server-status"' in html
+    assert 'id="summary-total-jobs"' in html
+    assert 'id="summary-total-engines"' in html
+    assert 'id="summary-last-design"' in html
+    assert 'data-tab-target="design-view" data-module-target="rocket-engine"' in html
+    assert 'data-tab-target="design-view" data-module-target="heat-exchanger"' in html
+    assert 'data-tab-target="design-view" data-module-target="actuator"' in html
+    assert 'id="mission-view"' in html
     assert 'id="mission-form"' in html
     assert '<select id="mission_engine_job_id" name="engine_job_id" required>' in html
+    assert 'id="hx_duty_kW" name="duty_kW" type="number" min="0.001" step="any"' in html
+    assert 'id="hx_hot_inlet_temp_C" name="hot_inlet_temp_C" type="number" step="any"' in html
+    assert 'id="hx_hot_outlet_temp_C" name="hot_outlet_temp_C" type="number" step="any"' in html
+    assert 'id="hx_cold_inlet_temp_C" name="cold_inlet_temp_C" type="number" step="any"' in html
+    assert 'id="actuator_force_N" name="force_N" type="number" min="0.1" step="any"' in html
+    assert 'id="actuator_stroke_mm" name="stroke_mm" type="number" min="0.1" step="any"' in html
+    assert 'id="actuator_voltage_V" name="voltage_V" type="number" min="0.1" step="any"' in html
+    assert 'id="actuator_response_time_ms" name="response_time_ms" type="number" min="0.1" step="any"' in html
     assert 'id="mission_vehicle_mass_kg" name="vehicle_mass_kg" type="number" min="0.001" step="any"' in html
     assert 'id="mission_propellant_mass_kg" name="propellant_mass_kg" type="number" min="0.001" step="any"' in html
     assert 'id="mission-result-cards"' in html
     assert '<option value="mission">Mission</option>' in html
+    assert '<th>Name</th>' in html
+    assert '<th>Module</th>' in html
+    assert '<th>Date</th>' in html
+    assert '<th>Key Metric</th>' in html
+    assert '<th>Size</th>' in html
+    assert '<th>Actions</th>' in html
+    assert 'id="analytics-view"' in html
     assert 'fetch("/api/mission"' in js
+    assert "setServerStatus(true)" in js
+    assert "updateDashboardSummary()" in js
+    assert "setActiveModule(moduleTarget)" in js
+    assert "formatBytes(job.size_bytes)" in js
     assert "populateMissionEngineOptions();" in js
     assert "missionEngineLabel(job)" in js
     assert "option.value = job.job_id" in js
@@ -356,7 +417,11 @@ def test_dashboard_includes_mission_tab_and_metrics():
     assert "hydrogen_mass_needed_kg_s" in js
     assert "renderMissionResults(payload.job)" in js
     assert ".dashboard-tabs" in css
+    assert ".dashboard-layout" in css
+    assert ".sidebar" in css
     assert ".mission-workspace" in css
+    assert ".history-table" in css
+    assert ".compare-panel" in css
 
 
 def test_dashboard_uses_custom_delete_modal_and_stl_fullscreen_control():

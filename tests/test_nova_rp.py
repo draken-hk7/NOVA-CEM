@@ -115,7 +115,7 @@ def test_nova_rp_physics_only_mode_keeps_report_without_cad_artifacts(monkeypatc
     assert result.mass_kg > 0.0
     assert result.validation.passed
     assert set(files) == {"thermal_map", "report", "json"}
-    assert set(urls) == {"report"}
+    assert set(urls) == {"thermal_map", "report"}
     assert (artifact_dir / "report.pdf").exists()
     assert (artifact_dir / "thermal_map.svg").exists()
 
