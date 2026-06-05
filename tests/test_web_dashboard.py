@@ -342,6 +342,12 @@ def test_dashboard_embeds_threejs_stl_viewer_assets():
     assert "STLLoader.js" not in html
     assert "OrbitControls.js" not in html
     assert 'id="stl-viewer"' in html
+    assert 'id="clip-x-slider" type="range" min="0" max="100" value="0"' in html
+    assert 'id="clip-y-slider" type="range" min="0" max="100" value="0"' in html
+    assert 'id="clip-z-slider" type="range" min="0" max="100" value="0"' in html
+    assert 'id="clip-reset-button"' in html
+    assert 'id="flow-toggle-button"' in html
+    assert 'id="flow-speed-slider" type="range" min="0.25" max="3" step="0.25" value="1"' in html
     assert "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" in js
     assert "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js" in js
     assert "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js" in js
@@ -362,8 +368,22 @@ def test_dashboard_embeds_threejs_stl_viewer_assets():
     assert "but ${asset.globalName} is unavailable." in js
     assert "new THREE.WebGLRenderer" in js
     assert "new THREE.OrbitControls" in js
+    assert "renderer.clippingPlanes" in js
+    assert "new THREE.Plane(" in js
+    assert "new THREE.PlaneGeometry" in js
+    assert "clipCapMaterial" in js
+    assert "new THREE.BufferGeometry()" in js
+    assert "new THREE.PointsMaterial" in js
+    assert "new THREE.Points(flowGeometry, flowMaterial)" in js
+    assert "const particleCount = 360" in js
+    assert "particleCount = 360" in js and 360 < 500
+    assert "flowToggleButton.addEventListener(\"click\"" in js
+    assert "flowSpeedSlider.addEventListener(\"input\"" in js
+    assert "clipResetButton.addEventListener(\"click\"" in js
     assert "renderSTLPreview(stlDownloadUrl(job)" in js
     assert ".stl-viewer" in css
+    assert ".viewer-controls" in css
+    assert ".range-control" in css
     assert ".preview-message a" in css
     assert "300px" in css
 
@@ -448,5 +468,5 @@ def test_dashboard_uses_custom_delete_modal_and_stl_fullscreen_control():
     assert ".modal-dialog" in css
     assert ".danger-primary" in css
     assert ".stl-preview-section:fullscreen" in css
-    assert "height: calc(100vh - 82px)" in css
+    assert "height: calc(100vh - 250px)" in css
     assert ".viewer-action" in css

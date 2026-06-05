@@ -26,6 +26,20 @@ const stlPreviewSectionEl = document.querySelector("#stl-preview-section");
 const stlViewerEl = document.querySelector("#stl-viewer");
 const stlPreviewStatusEl = document.querySelector("#stl-preview-status");
 const stlFullscreenButton = document.querySelector("#stl-fullscreen-button");
+const clipSliders = {
+  x: document.querySelector("#clip-x-slider"),
+  y: document.querySelector("#clip-y-slider"),
+  z: document.querySelector("#clip-z-slider")
+};
+const clipValueEls = {
+  x: document.querySelector("#clip-x-value"),
+  y: document.querySelector("#clip-y-value"),
+  z: document.querySelector("#clip-z-value")
+};
+const clipResetButton = document.querySelector("#clip-reset-button");
+const flowToggleButton = document.querySelector("#flow-toggle-button");
+const flowSpeedSlider = document.querySelector("#flow-speed-slider");
+const flowSpeedValueEl = document.querySelector("#flow-speed-value");
 const tabButtons = document.querySelectorAll(".tab-button");
 const tabPanels = document.querySelectorAll("[data-tab-panel]");
 const moduleForms = document.querySelectorAll("[data-module-form]");
@@ -397,6 +411,16 @@ function stlDownloadUrl(job) {
   return artifactDownloadUrl(job, "stl");
 }
 
+function updateClipControlLabels() {
+  for (const axis of Object.keys(clipSliders)) {
+    clipValueEls[axis].textContent = `${Number(clipSliders[axis].value).toFixed(0)}%`;
+  }
+}
+
+function updateFlowSpeedLabel() {
+  flowSpeedValueEl.textContent = `${Number(flowSpeedSlider.value).toFixed(2).replace(/\.?0+$/, "")}x`;
+}
+
 function fullscreenSupported() {
   return Boolean(stlPreviewSectionEl.requestFullscreen && document.exitFullscreen);
 }
@@ -440,6 +464,17 @@ function clearSTLPreview() {
   if (stlViewerState?.resizeObserver) {
     stlViewerState.resizeObserver.disconnect();
   }
+  if (stlViewerState?.flow?.dispose) {
+    stlViewerState.flow.dispose();
+  }
+  if (stlViewerState?.clipCapMaterial) {
+    stlViewerState.clipCapMaterial.dispose();
+  }
+  if (stlViewerState?.clipCapGroup) {
+    stlViewerState.clipCapGroup.children.forEach((child) => {
+      child.geometry?.dispose();
+    });
+  }
   if (stlViewerState?.geometry) {
     stlViewerState.geometry.dispose();
   }
@@ -451,6 +486,7 @@ function clearSTLPreview() {
   }
   stlViewerState = null;
   stlViewerEl.replaceChildren();
+  flowToggleButton.textContent = "Play flow";
   updateSTLFullscreenButton();
 }
 
@@ -560,7 +596,11 @@ async function renderSTLPreview(stlUrl, label) {
     animationFrame: null,
     resizeObserver: null,
     resizeRenderer: null,
-    fitCamera: null
+    fitCamera: null,
+    updateClipping: null,
+    clipCapGroup: null,
+    clipCapMaterial: null,
+    flow: null
   };
   stlViewerState = state;
 
@@ -598,6 +638,8 @@ async function renderSTLPreview(stlUrl, label) {
   const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 10000);
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.localClippingEnabled = true;
+  renderer.clippingPlanes = [];
   stlViewerEl.appendChild(renderer.domElement);
   state.renderer = renderer;
 
@@ -629,8 +671,8 @@ async function renderSTLPreview(stlUrl, label) {
       };
     }
     return {
-      width: Math.max(220, Math.min(300, measuredWidth)),
-      height: Math.max(220, Math.min(300, measuredHeight))
+      width: Math.max(220, Math.min(520, measuredWidth)),
+      height: Math.max(220, Math.min(360, measuredHeight))
     };
   }
 
@@ -646,11 +688,17 @@ async function renderSTLPreview(stlUrl, label) {
   state.resizeObserver.observe(stlViewerEl);
   resizeRenderer();
 
+  const viewerClock = new THREE.Clock();
+
   function animate() {
     if (stlViewerState !== state) {
       return;
     }
     state.animationFrame = requestAnimationFrame(animate);
+    const delta = Math.min(viewerClock.getDelta(), 0.05);
+    if (state.flow?.update) {
+      state.flow.update(delta);
+    }
     controls.update();
     renderer.render(scene, camera);
   }
@@ -668,11 +716,216 @@ async function renderSTLPreview(stlUrl, label) {
   const material = new THREE.MeshStandardMaterial({
     color: 0x9fc7bd,
     metalness: 0.28,
-    roughness: 0.46
+    roughness: 0.46,
+    side: THREE.DoubleSide
   });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = label;
   scene.add(mesh);
+
+  const halfSize = {
+    x: size.x / 2,
+    y: size.y / 2,
+    z: size.z / 2
+  };
+  const clipCapGroup = new THREE.Group();
+  const clipCapMaterial = new THREE.MeshBasicMaterial({
+    color: 0xffcf6e,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.78,
+    depthWrite: false
+  });
+  scene.add(clipCapGroup);
+  state.clipCapGroup = clipCapGroup;
+  state.clipCapMaterial = clipCapMaterial;
+
+  function makeClipCap(axis, position) {
+    const pad = 1.08;
+    let geometry;
+    const mesh = new THREE.Mesh(undefined, clipCapMaterial);
+    if (axis === "x") {
+      geometry = new THREE.PlaneGeometry(Math.max(size.y * pad, 1), Math.max(size.z * pad, 1));
+      mesh.rotation.y = Math.PI / 2;
+      mesh.position.x = position;
+    } else if (axis === "y") {
+      geometry = new THREE.PlaneGeometry(Math.max(size.x * pad, 1), Math.max(size.z * pad, 1));
+      mesh.rotation.x = Math.PI / 2;
+      mesh.position.y = position;
+    } else {
+      geometry = new THREE.PlaneGeometry(Math.max(size.x * pad, 1), Math.max(size.y * pad, 1));
+      mesh.position.z = position;
+    }
+    mesh.geometry = geometry;
+    mesh.renderOrder = 3;
+    return mesh;
+  }
+
+  function clearClipCaps() {
+    clipCapGroup.children.forEach((child) => {
+      child.geometry?.dispose();
+    });
+    clipCapGroup.clear();
+  }
+
+  function updateClipping() {
+    const planes = [];
+    clearClipCaps();
+    const axisNormals = {
+      x: new THREE.Vector3(1, 0, 0),
+      y: new THREE.Vector3(0, 1, 0),
+      z: new THREE.Vector3(0, 0, 1)
+    };
+    for (const axis of Object.keys(clipSliders)) {
+      const percent = Number(clipSliders[axis].value);
+      if (!Number.isFinite(percent) || percent <= 0) {
+        continue;
+      }
+      const extent = halfSize[axis] * 2 || 1;
+      const position = -halfSize[axis] + extent * (Math.min(percent, 100) / 100);
+      planes.push(new THREE.Plane(axisNormals[axis], -position));
+      clipCapGroup.add(makeClipCap(axis, position));
+    }
+    renderer.clippingPlanes = planes;
+    updateClipControlLabels();
+  }
+
+  state.updateClipping = updateClipping;
+  updateClipping();
+
+  function createPropellantFlowSystem() {
+    const particleCount = 360;
+    const positions = new Float32Array(particleCount * 3);
+    const colors = new Float32Array(particleCount * 3);
+    const progress = new Float32Array(particleCount);
+    const phase = new Float32Array(particleCount);
+    const kind = new Uint8Array(particleCount);
+    const portIndex = new Uint8Array(particleCount);
+    const extents = [Math.max(size.x, 1), Math.max(size.y, 1), Math.max(size.z, 1)];
+    const primaryAxis = extents.indexOf(Math.max(...extents));
+    const radialAxes = [0, 1, 2].filter((axis) => axis !== primaryAxis);
+    const radialExtent = Math.max(Math.min(extents[radialAxes[0]], extents[radialAxes[1]]) * 0.28, maxDimension * 0.035);
+    const flowGeometry = new THREE.BufferGeometry();
+    const flowMaterial = new THREE.PointsMaterial({
+      size: Math.max(maxDimension * 0.018, 0.75),
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.88,
+      depthWrite: false,
+      sizeAttenuation: true
+    });
+    const flowPoints = new THREE.Points(flowGeometry, flowMaterial);
+    flowPoints.name = "NOVA propellant flow";
+    flowPoints.renderOrder = 4;
+    scene.add(flowPoints);
+
+    let running = false;
+    let speed = Number(flowSpeedSlider.value) || 1;
+
+    function smoothstep(edge0, edge1, value) {
+      const x = Math.min(Math.max((value - edge0) / (edge1 - edge0), 0), 1);
+      return x * x * (3 - 2 * x);
+    }
+
+    function throatBoost(value) {
+      return Math.exp(-Math.pow((value - 0.62) / 0.11, 2));
+    }
+
+    function setVectorComponent(index, axis, value) {
+      positions[index * 3 + axis] = value;
+    }
+
+    function writeParticle(index) {
+      const t = progress[index];
+      const boost = throatBoost(t);
+      const exitExpansion = smoothstep(0.66, 1, t);
+      const inletBlend = 1 - smoothstep(0, 0.18, t);
+      const chamberRadius = radialExtent * (1 - 0.68 * boost + 0.46 * exitExpansion);
+      const inletRadius = kind[index] ? radialExtent * 1.05 : radialExtent * 0.14;
+      const radius = chamberRadius * (1 - inletBlend) + inletRadius * inletBlend;
+      const baseAngle = kind[index] ? (portIndex[index] / 8) * Math.PI * 2 : phase[index];
+      const swirl = baseAngle + t * (kind[index] ? 2.4 : 5.2);
+      const axisStart = extents[primaryAxis] / 2;
+      const axisPosition = axisStart - t * extents[primaryAxis];
+      const fade = t > 0.82 ? Math.max(0, 1 - (t - 0.82) / 0.18) : 1;
+      const radialA = Math.cos(swirl) * radius;
+      const radialB = Math.sin(swirl) * radius * 0.74;
+
+      setVectorComponent(index, primaryAxis, axisPosition);
+      setVectorComponent(index, radialAxes[0], radialA);
+      setVectorComponent(index, radialAxes[1], radialB);
+
+      const colorOffset = index * 3;
+      if (kind[index]) {
+        colors[colorOffset] = 1.0 * fade;
+        colors[colorOffset + 1] = 0.18 * fade;
+        colors[colorOffset + 2] = 0.08 * fade;
+      } else {
+        colors[colorOffset] = 0.08 * fade;
+        colors[colorOffset + 1] = 0.42 * fade;
+        colors[colorOffset + 2] = 1.0 * fade;
+      }
+    }
+
+    for (let index = 0; index < particleCount; index += 1) {
+      kind[index] = index < particleCount / 2 ? 0 : 1;
+      portIndex[index] = index % 8;
+      progress[index] = (index / particleCount + Math.random() * 0.08) % 1;
+      phase[index] = Math.random() * Math.PI * 2;
+      writeParticle(index);
+    }
+
+    flowGeometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    flowGeometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+
+    function update(delta) {
+      if (!running) {
+        return;
+      }
+      for (let index = 0; index < particleCount; index += 1) {
+        progress[index] += delta * 0.13 * speed * (1 + throatBoost(progress[index]) * 2.8);
+        if (progress[index] > 1) {
+          progress[index] -= Math.floor(progress[index]);
+          phase[index] = Math.random() * Math.PI * 2;
+        }
+        writeParticle(index);
+      }
+      flowGeometry.attributes.position.needsUpdate = true;
+      flowGeometry.attributes.color.needsUpdate = true;
+    }
+
+    function setRunning(value) {
+      running = Boolean(value);
+      flowToggleButton.textContent = running ? "Pause flow" : "Play flow";
+    }
+
+    function toggleRunning() {
+      setRunning(!running);
+    }
+
+    function setSpeed(value) {
+      speed = Math.min(Math.max(Number(value) || 1, 0.25), 3);
+      updateFlowSpeedLabel();
+    }
+
+    function dispose() {
+      scene.remove(flowPoints);
+      flowGeometry.dispose();
+      flowMaterial.dispose();
+    }
+
+    return {
+      update,
+      setRunning,
+      toggleRunning,
+      setSpeed,
+      dispose
+    };
+  }
+
+  state.flow = createPropellantFlowSystem();
+  state.flow.setRunning(false);
+  state.flow.setSpeed(Number(flowSpeedSlider.value));
 
   const modelRadius = Math.max(size.length() / 2, maxDimension / 2, 1);
   const cameraDirection = new THREE.Vector3(0.58, -0.76, 0.45).normalize();
@@ -1173,6 +1426,38 @@ document.addEventListener("keydown", (event) => {
 stlFullscreenButton.addEventListener("click", toggleSTLFullscreen);
 document.addEventListener("fullscreenchange", updateSTLFullscreenButton);
 
+for (const slider of Object.values(clipSliders)) {
+  slider.addEventListener("input", () => {
+    updateClipControlLabels();
+    if (stlViewerState?.updateClipping) {
+      stlViewerState.updateClipping();
+    }
+  });
+}
+
+clipResetButton.addEventListener("click", () => {
+  for (const slider of Object.values(clipSliders)) {
+    slider.value = "0";
+  }
+  updateClipControlLabels();
+  if (stlViewerState?.updateClipping) {
+    stlViewerState.updateClipping();
+  }
+});
+
+flowToggleButton.addEventListener("click", () => {
+  if (stlViewerState?.flow) {
+    stlViewerState.flow.toggleRunning();
+  }
+});
+
+flowSpeedSlider.addEventListener("input", () => {
+  updateFlowSpeedLabel();
+  if (stlViewerState?.flow) {
+    stlViewerState.flow.setSpeed(Number(flowSpeedSlider.value));
+  }
+});
+
 themeToggleButton.addEventListener("click", () => {
   const current = document.documentElement.dataset.theme || "light";
   setTheme(current === "dark" ? "light" : "dark");
@@ -1190,6 +1475,8 @@ refreshHistoryButton.addEventListener("click", async () => {
 });
 
 setTheme(localStorage.getItem("nova-theme") || "light");
+updateClipControlLabels();
+updateFlowSpeedLabel();
 setActiveModule(activeDesignModule);
 loadHistory().catch((error) => {
   setError(error.message);

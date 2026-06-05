@@ -457,6 +457,57 @@ button.secondary:hover,
   height: 100%;
 }
 
+.viewer-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.viewer-control-group {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field);
+  padding: 12px;
+}
+
+.viewer-control-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.viewer-control-heading h3 {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.range-control {
+  gap: 8px;
+}
+
+.range-control span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.range-control output {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.range-control input[type="range"] {
+  min-height: 24px;
+  padding: 0;
+}
+
 .preview-message {
   display: grid;
   gap: 12px;
@@ -505,11 +556,15 @@ button.secondary:hover,
 
 .stl-preview-section:fullscreen .stl-viewer {
   width: 100%;
-  height: calc(100vh - 82px);
+  height: calc(100vh - 250px);
   max-width: none;
   max-height: none;
   min-height: 0;
   flex: 1 1 auto;
+}
+
+.stl-preview-section:fullscreen .viewer-controls {
+  flex: 0 0 auto;
 }
 
 .validation {
@@ -886,7 +941,8 @@ button.secondary:hover,
   }
 
   .cards,
-  .history-controls {
+  .history-controls,
+  .viewer-controls {
     grid-template-columns: 1fr;
   }
 
@@ -956,5 +1012,10 @@ button.secondary:hover,
 
   .stl-viewer {
     min-height: 240px;
+  }
+
+  .viewer-control-heading {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

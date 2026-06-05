@@ -240,6 +240,37 @@
                     </div>
                   </div>
                   <div id="stl-viewer" class="stl-viewer" aria-label="3D STL preview"></div>
+                  <div id="stl-viewer-controls" class="viewer-controls">
+                    <section class="viewer-control-group" aria-label="Cross-section clipping controls">
+                      <div class="viewer-control-heading">
+                        <h3>Cross-section</h3>
+                        <button id="clip-reset-button" class="secondary viewer-action" type="button">Reset clip</button>
+                      </div>
+                      <label class="range-control">
+                        <span>X Clip <output id="clip-x-value" for="clip-x-slider">0%</output></span>
+                        <input id="clip-x-slider" type="range" min="0" max="100" value="0">
+                      </label>
+                      <label class="range-control">
+                        <span>Y Clip <output id="clip-y-value" for="clip-y-slider">0%</output></span>
+                        <input id="clip-y-slider" type="range" min="0" max="100" value="0">
+                      </label>
+                      <label class="range-control">
+                        <span>Z Clip <output id="clip-z-value" for="clip-z-slider">0%</output></span>
+                        <input id="clip-z-slider" type="range" min="0" max="100" value="0">
+                      </label>
+                    </section>
+
+                    <section class="viewer-control-group" aria-label="Propellant flow simulation controls">
+                      <div class="viewer-control-heading">
+                        <h3>Propellant Flow</h3>
+                        <button id="flow-toggle-button" class="secondary viewer-action" type="button">Play flow</button>
+                      </div>
+                      <label class="range-control">
+                        <span>Speed <output id="flow-speed-value" for="flow-speed-slider">1.0x</output></span>
+                        <input id="flow-speed-slider" type="range" min="0.25" max="3" step="0.25" value="1">
+                      </label>
+                    </section>
+                  </div>
                 </section>
 
                 <div class="validation">
