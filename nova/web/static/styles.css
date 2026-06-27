@@ -508,6 +508,17 @@ button.secondary:hover,
   padding: 0;
 }
 
+.button-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(74px, 1fr));
+  gap: 8px;
+}
+
+.button-grid .viewer-action {
+  width: 100%;
+  min-height: 34px;
+}
+
 .preview-message {
   display: grid;
   gap: 12px;
@@ -556,7 +567,7 @@ button.secondary:hover,
 
 .stl-preview-section:fullscreen .stl-viewer {
   width: 100%;
-  height: calc(100vh - 250px);
+  height: calc(100vh - 330px);
   max-width: none;
   max-height: none;
   min-height: 0;
@@ -564,7 +575,10 @@ button.secondary:hover,
 }
 
 .stl-preview-section:fullscreen .viewer-controls {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   flex: 0 0 auto;
+  max-height: 240px;
+  overflow-y: auto;
 }
 
 .validation {

@@ -37,6 +37,8 @@ const clipValueEls = {
   z: document.querySelector("#clip-z-value")
 };
 const clipResetButton = document.querySelector("#clip-reset-button");
+const sectionViewButtons = document.querySelectorAll("[data-section-view]");
+const auxiliaryViewButtons = document.querySelectorAll("[data-aux-view]");
 const flowToggleButton = document.querySelector("#flow-toggle-button");
 const flowSpeedSlider = document.querySelector("#flow-speed-slider");
 const flowSpeedValueEl = document.querySelector("#flow-speed-value");
@@ -417,6 +419,16 @@ function updateClipControlLabels() {
   }
 }
 
+function setClipControlValues(values) {
+  for (const axis of Object.keys(clipSliders)) {
+    clipSliders[axis].value = String(values[axis] ?? 0);
+  }
+  updateClipControlLabels();
+  if (stlViewerState?.updateClipping) {
+    stlViewerState.updateClipping();
+  }
+}
+
 function updateFlowSpeedLabel() {
   flowSpeedValueEl.textContent = `${Number(flowSpeedSlider.value).toFixed(2).replace(/\.?0+$/, "")}x`;
 }
@@ -598,6 +610,8 @@ async function renderSTLPreview(stlUrl, label) {
     resizeRenderer: null,
     fitCamera: null,
     updateClipping: null,
+    applySectionView: null,
+    applyAuxiliaryView: null,
     clipCapGroup: null,
     clipCapMaterial: null,
     flow: null
@@ -928,15 +942,16 @@ async function renderSTLPreview(stlUrl, label) {
   state.flow.setSpeed(Number(flowSpeedSlider.value));
 
   const modelRadius = Math.max(size.length() / 2, maxDimension / 2, 1);
-  const cameraDirection = new THREE.Vector3(0.58, -0.76, 0.45).normalize();
+  const currentCameraDirection = new THREE.Vector3(0.58, -0.76, 0.45).normalize();
 
-  function fitCameraToObject() {
+  function fitCameraToObject(direction = currentCameraDirection) {
     resizeRenderer();
+    currentCameraDirection.copy(direction).normalize();
     const fov = camera.fov * (Math.PI / 180);
     const horizontalFov = 2 * Math.atan(Math.tan(fov / 2) * camera.aspect);
     const limitingFov = Math.max(Math.min(fov, horizontalFov), 0.1);
     const distance = (modelRadius / Math.sin(limitingFov / 2)) * 1.22;
-    camera.position.copy(cameraDirection.clone().multiplyScalar(distance));
+    camera.position.copy(currentCameraDirection.clone().multiplyScalar(distance));
     camera.near = Math.max(distance / 1000, 0.1);
     camera.far = Math.max(distance * 10, maxDimension * 12);
     camera.lookAt(0, 0, 0);
@@ -946,7 +961,38 @@ async function renderSTLPreview(stlUrl, label) {
     controls.update();
   }
 
+  function auxiliaryViewDirection(name) {
+    const directions = {
+      iso: new THREE.Vector3(0.58, -0.76, 0.45),
+      front: new THREE.Vector3(0, -1, 0.08),
+      right: new THREE.Vector3(1, 0, 0.08),
+      top: new THREE.Vector3(0.08, -0.08, 1),
+      "aux-a": new THREE.Vector3(0.82, -0.42, 0.38),
+      "aux-b": new THREE.Vector3(-0.46, -0.74, 0.48)
+    };
+    return (directions[name] || directions.iso).normalize();
+  }
+
+  function applyAuxiliaryView(name) {
+    fitCameraToObject(auxiliaryViewDirection(name));
+  }
+
+  function applySectionView(name) {
+    const presets = {
+      full: { x: 0, y: 0, z: 0, view: "iso" },
+      "half-x": { x: 50, y: 0, z: 0, view: "aux-a" },
+      "half-y": { x: 0, y: 50, z: 0, view: "aux-b" },
+      "half-z": { x: 0, y: 0, z: 50, view: "iso" },
+      quarter: { x: 50, y: 50, z: 0, view: "aux-a" }
+    };
+    const preset = presets[name] || presets.full;
+    setClipControlValues(preset);
+    applyAuxiliaryView(preset.view);
+  }
+
   state.fitCamera = fitCameraToObject;
+  state.applySectionView = applySectionView;
+  state.applyAuxiliaryView = applyAuxiliaryView;
   fitCameraToObject();
 
   state.material = material;
@@ -1436,13 +1482,33 @@ for (const slider of Object.values(clipSliders)) {
 }
 
 clipResetButton.addEventListener("click", () => {
-  for (const slider of Object.values(clipSliders)) {
-    slider.value = "0";
-  }
-  updateClipControlLabels();
-  if (stlViewerState?.updateClipping) {
-    stlViewerState.updateClipping();
-  }
+  setClipControlValues({ x: 0, y: 0, z: 0 });
+});
+
+sectionViewButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    const preset = button.dataset.sectionView;
+    if (stlViewerState?.applySectionView) {
+      stlViewerState.applySectionView(preset);
+      return;
+    }
+    const fallbackPresets = {
+      full: { x: 0, y: 0, z: 0 },
+      "half-x": { x: 50, y: 0, z: 0 },
+      "half-y": { x: 0, y: 50, z: 0 },
+      "half-z": { x: 0, y: 0, z: 50 },
+      quarter: { x: 50, y: 50, z: 0 }
+    };
+    setClipControlValues(fallbackPresets[preset] || fallbackPresets.full);
+  });
+});
+
+auxiliaryViewButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    if (stlViewerState?.applyAuxiliaryView) {
+      stlViewerState.applyAuxiliaryView(button.dataset.auxView);
+    }
+  });
 });
 
 flowToggleButton.addEventListener("click", () => {

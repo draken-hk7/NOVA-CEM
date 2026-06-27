@@ -346,6 +346,12 @@ def test_dashboard_embeds_threejs_stl_viewer_assets():
     assert 'id="clip-y-slider" type="range" min="0" max="100" value="0"' in html
     assert 'id="clip-z-slider" type="range" min="0" max="100" value="0"' in html
     assert 'id="clip-reset-button"' in html
+    assert 'aria-label="Sectional view presets"' in html
+    assert 'data-section-view="half-x"' in html
+    assert 'data-section-view="quarter"' in html
+    assert 'aria-label="Auxiliary view presets"' in html
+    assert 'data-aux-view="aux-a"' in html
+    assert 'data-aux-view="aux-b"' in html
     assert 'id="flow-toggle-button"' in html
     assert 'id="flow-speed-slider" type="range" min="0.25" max="3" step="0.25" value="1"' in html
     assert "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" in js
@@ -372,6 +378,12 @@ def test_dashboard_embeds_threejs_stl_viewer_assets():
     assert "new THREE.Plane(" in js
     assert "new THREE.PlaneGeometry" in js
     assert "clipCapMaterial" in js
+    assert "setClipControlValues" in js
+    assert "function applySectionView(name)" in js
+    assert "function applyAuxiliaryView(name)" in js
+    assert "function auxiliaryViewDirection(name)" in js
+    assert "sectionViewButtons.forEach" in js
+    assert "auxiliaryViewButtons.forEach" in js
     assert "new THREE.BufferGeometry()" in js
     assert "new THREE.PointsMaterial" in js
     assert "new THREE.Points(flowGeometry, flowMaterial)" in js
@@ -384,6 +396,7 @@ def test_dashboard_embeds_threejs_stl_viewer_assets():
     assert ".stl-viewer" in css
     assert ".viewer-controls" in css
     assert ".range-control" in css
+    assert ".button-grid" in css
     assert ".preview-message a" in css
     assert "300px" in css
 
@@ -459,7 +472,7 @@ def test_dashboard_uses_custom_delete_modal_and_stl_fullscreen_control():
     assert "requestFullscreen" in js
     assert "document.exitFullscreen" in js
     assert "function viewerDimensions()" in js
-    assert "function fitCameraToObject()" in js
+    assert "function fitCameraToObject(direction = currentCameraDirection)" in js
     assert "document.fullscreenElement === stlPreviewSectionEl" in js
     assert "state.resizeRenderer = resizeRenderer" in js
     assert "state.fitCamera = fitCameraToObject" in js
@@ -468,5 +481,5 @@ def test_dashboard_uses_custom_delete_modal_and_stl_fullscreen_control():
     assert ".modal-dialog" in css
     assert ".danger-primary" in css
     assert ".stl-preview-section:fullscreen" in css
-    assert "height: calc(100vh - 250px)" in css
+    assert "height: calc(100vh - 330px)" in css
     assert ".viewer-action" in css
