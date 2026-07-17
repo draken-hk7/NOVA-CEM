@@ -106,6 +106,8 @@ async def design_engine(request: DashboardEngineRequest) -> dict:
             metrics=_engine_metrics(design),
             validation=_validation_results(design),
             files=files,
+            metadata=_design_metadata(design),
+            design_log=_design_log(design),
         )
         _prepend_history(record)
         return {"job": _public_record(record)}
@@ -140,6 +142,8 @@ async def design_heat_exchanger(request: DashboardHeatExchangerRequest) -> dict:
             metrics=_hx_metrics(design),
             validation=_validation_results(design),
             files=files,
+            metadata=_design_metadata(design),
+            design_log=_design_log(design),
         )
         _prepend_history(record)
         return {"job": _public_record(record)}
@@ -171,6 +175,8 @@ async def design_actuator(request: DashboardActuatorRequest) -> dict:
             metrics=_actuator_metrics(design),
             validation=_validation_results(design),
             files=files,
+            metadata=_design_metadata(design),
+            design_log=_design_log(design),
         )
         _prepend_history(record)
         return {"job": _public_record(record)}
@@ -206,6 +212,12 @@ async def run_mission(request: DashboardMissionRequest) -> dict:
             metrics=_mission_metrics(result),
             validation={"passed": True, "checks": []},
             files=files,
+            metadata={},
+            design_log=[
+                "Loading engine performance",
+                "Applying Tsiolkovsky rocket equation",
+                "Estimating burn time and altitude",
+            ],
         )
         _prepend_history(record)
         return {"job": _public_record(record), "mission": to_jsonable(result)}
@@ -334,6 +346,8 @@ def _job_record(
     metrics: dict[str, float],
     validation: dict,
     files: dict[str, str],
+    metadata: dict | None = None,
+    design_log: list[str] | None = None,
 ) -> dict:
     return {
         "job_id": job_id,
@@ -343,6 +357,8 @@ def _job_record(
         "parameters": parameters,
         "metrics": metrics,
         "validation": validation,
+        "metadata": metadata or {},
+        "design_log": design_log or [],
         "files": _download_urls(job_id, files),
         "artifact_paths": files,
     }
@@ -407,6 +423,8 @@ def _public_record(record: dict) -> dict:
         "parameters": record["parameters"],
         "metrics": record["metrics"],
         "validation": record.get("validation"),
+        "metadata": record.get("metadata", {}),
+        "design_log": record.get("design_log", []),
         "files": record["files"],
         "size_bytes": _job_size_bytes(record),
     }
@@ -427,6 +445,25 @@ def _job_size_bytes(record: dict) -> int:
 def _validation_results(design: object) -> dict:
     validation = getattr(design, "validation", None)
     return to_jsonable(validation) if validation is not None else {"passed": True, "checks": []}
+
+
+def _design_metadata(design: object) -> dict:
+    return to_jsonable(getattr(design, "metadata", {}) or {})
+
+
+def _design_log(design: object) -> list[str]:
+    trace = getattr(design, "trace", None) or []
+    entries: list[str] = []
+    for item in to_jsonable(trace):
+        if not isinstance(item, dict):
+            continue
+        requirement = item.get("requirement", "design step")
+        calculation = item.get("calculation", "calculation")
+        parameter = item.get("geometry_parameter", "result")
+        value = item.get("value", "")
+        unit = item.get("unit", "")
+        entries.append(f"{requirement}: {calculation} -> {parameter} {value} {unit}".strip())
+    return entries
 
 
 def _unique_job_id(module: str, label: str) -> str:

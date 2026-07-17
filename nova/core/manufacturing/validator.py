@@ -17,6 +17,8 @@ LPBF_MIN_WALL_THICKNESS_MM = 0.4
 MIN_COOLING_CHANNEL_WALL_MM = 0.5
 MIN_MANIFOLD_WALL_THICKNESS_MM = 0.4
 PRESSURE_VESSEL_SAFETY_FACTOR = 4.0
+COMBUSTION_RESONANCE_MIN_HZ = 1000.0
+COMBUSTION_RESONANCE_MAX_HZ = 5000.0
 
 
 @dataclass(slots=True)
@@ -43,6 +45,7 @@ class ManufacturingValidator:
             self.pressure_vessel_check(solid),
             self.cooling_channel_wall_check(solid),
             self.manifold_wall_thickness_check(solid),
+            self.combustion_stability_check(solid),
         ]
         return ValidationResult(passed=all(check.passed for check in checks), checks=checks)
 
@@ -176,6 +179,47 @@ class ManufacturingValidator:
             message=(
                 f"Propellant manifold wall is {actual:.3f} mm; "
                 f"minimum is {minimum:.3f} mm."
+            ),
+        )
+
+    def combustion_stability_check(self, solid: MeshSolid) -> CheckResult:
+        metadata = solid.metadata
+        chamber_length_mm = _first_float(metadata, "chamber_length_mm")
+        speed_of_sound_m_s = _first_float(
+            metadata,
+            "combustion_gas_speed_of_sound_m_s",
+            "combustion_speed_of_sound_m_s",
+            "speed_of_sound_m_s",
+        )
+        if speed_of_sound_m_s is None:
+            chamber_temp_K = _first_float(metadata, "chamber_temp_K", "combustion_temperature_K")
+            gamma = _first_float(metadata, "combustion_gamma", "gamma") or 1.22
+            gas_constant_J_kgK = _first_float(metadata, "combustion_gas_constant_J_kgK", "gas_constant_J_kgK") or 355.0
+            if chamber_temp_K is not None:
+                speed_of_sound_m_s = math.sqrt(max(gamma * gas_constant_J_kgK * chamber_temp_K, 0.0))
+        if chamber_length_mm is None or chamber_length_mm <= 0.0 or speed_of_sound_m_s is None or speed_of_sound_m_s <= 0.0:
+            return CheckResult(
+                name="Combustion stability acoustic mode",
+                passed=True,
+                actual_value=None,
+                minimum_value=COMBUSTION_RESONANCE_MAX_HZ,
+                message=(
+                    "Combustion stability check skipped; chamber length or combustion gas "
+                    "speed-of-sound metadata is missing."
+                ),
+            )
+
+        acoustic_frequency_hz = speed_of_sound_m_s / (2.0 * chamber_length_mm / 1000.0)
+        in_problem_band = COMBUSTION_RESONANCE_MIN_HZ <= acoustic_frequency_hz <= COMBUSTION_RESONANCE_MAX_HZ
+        return CheckResult(
+            name="Combustion stability acoustic mode",
+            passed=not in_problem_band,
+            actual_value=acoustic_frequency_hz,
+            minimum_value=COMBUSTION_RESONANCE_MAX_HZ,
+            message=(
+                f"First longitudinal chamber acoustic mode is {acoustic_frequency_hz:.0f} Hz; "
+                f"NOVA warns inside the {COMBUSTION_RESONANCE_MIN_HZ:.0f}-"
+                f"{COMBUSTION_RESONANCE_MAX_HZ:.0f} Hz small-engine resonance band."
             ),
         )
 

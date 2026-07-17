@@ -28,6 +28,7 @@ def test_validator_passes_compliant_lpbf_engine_wall():
         "Pressure vessel wall",
         "Cooling channel wall",
         "Propellant manifold wall",
+        "Combustion stability acoustic mode",
     ]
 
 
@@ -54,6 +55,23 @@ def test_validator_flags_thin_propellant_manifold_wall():
     failed = {check.name for check in result.checks if not check.passed}
     assert not result.passed
     assert failed == {"Propellant manifold wall"}
+
+
+def test_validator_warns_on_combustion_acoustic_resonance_band():
+    solid = _annotated_annular_wall(1.0)
+    solid.metadata.update(
+        {
+            "chamber_length_mm": 100.0,
+            "combustion_gas_speed_of_sound_m_s": 400.0,
+        }
+    )
+
+    result = ManufacturingValidator().validate(solid)
+    stability = next(check for check in result.checks if check.name == "Combustion stability acoustic mode")
+
+    assert not result.passed
+    assert not stability.passed
+    assert stability.actual_value == pytest.approx(2000.0)
 
 
 def test_stl_export_validator_warns_on_failed_checks():

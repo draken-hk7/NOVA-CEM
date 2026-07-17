@@ -248,6 +248,8 @@ def test_public_history_includes_size_and_thermal_map_download(monkeypatch):
                 "parameters": {"propellant": "kerolox"},
                 "metrics": {"specific_impulse_s": 300.0},
                 "validation": {"passed": True, "checks": []},
+                "metadata": {"nozzle": {"chamber_length_mm": 80.0}},
+                "design_log": ["Computing combustion"],
                 "files": web_main._download_urls("engine-a", files),
                 "artifact_paths": files,
             }
@@ -258,6 +260,8 @@ def test_public_history_includes_size_and_thermal_map_download(monkeypatch):
 
     assert history[0]["files"]["thermal_map"] == "/download/engine-a/thermal_map"
     assert history[0]["size_bytes"] == thermal_map.stat().st_size + report.stat().st_size
+    assert history[0]["metadata"]["nozzle"]["chamber_length_mm"] == 80.0
+    assert history[0]["design_log"] == ["Computing combustion"]
 
 
 def test_delete_job_removes_folder_and_history_but_blocks_starred(monkeypatch):
@@ -354,9 +358,16 @@ def test_dashboard_embeds_threejs_stl_viewer_assets():
     assert 'data-aux-view="aux-b"' in html
     assert 'id="flow-toggle-button"' in html
     assert 'id="flow-speed-slider" type="range" min="0.25" max="3" step="0.25" value="1"' in html
+    assert 'id="render-mode-button"' in html
+    assert 'data-viewer-tab="mesh"' in html
+    assert 'data-viewer-tab="cad"' in html
+    assert 'id="cad-viewer"' in html
+    assert 'id="design-log-list"' in html
     assert "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" in js
     assert "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js" in js
     assert "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js" in js
+    assert "https://cdn.jsdelivr.net/npm/online-3d-viewer@0.18.0/build/engine/o3dv.min.js" in js
+    assert "https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" in js
     assert 'document.createElement("script")' in js
     assert "script.onload" in js
     assert "script.onerror" in js
@@ -374,10 +385,19 @@ def test_dashboard_embeds_threejs_stl_viewer_assets():
     assert "but ${asset.globalName} is unavailable." in js
     assert "new THREE.WebGLRenderer" in js
     assert "new THREE.OrbitControls" in js
+    assert "controls.enableZoom = true" in js
+    assert "controls.touches.TWO = THREE.TOUCH.DOLLY_PAN" in js
     assert "renderer.clippingPlanes" in js
     assert "new THREE.Plane(" in js
-    assert "new THREE.PlaneGeometry" in js
-    assert "clipCapMaterial" in js
+    assert "new THREE.PlaneHelper" in js
+    assert "clipHelperGroup" in js
+    assert "clipCapMaterial" not in js
+    assert "new THREE.PlaneGeometry" not in js
+    assert "function applyRenderMode(mode)" in js
+    assert "material.opacity = safeMode === \"xray\" ? 0.3 : 1.0" in js
+    assert "renderModeButton.addEventListener(\"click\"" in js
+    assert "OV.EmbeddedViewer" in js
+    assert "viewer.LoadModelFromUrlList([stepUrl])" in js
     assert "setClipControlValues" in js
     assert "function applySectionView(name)" in js
     assert "function applyAuxiliaryView(name)" in js
@@ -389,11 +409,21 @@ def test_dashboard_embeds_threejs_stl_viewer_assets():
     assert "new THREE.Points(flowGeometry, flowMaterial)" in js
     assert "const particleCount = 360" in js
     assert "particleCount = 360" in js and 360 < 500
+    assert "localNozzleRadiusMm" in js
+    assert "job?.metadata?.nozzle" in js
     assert "flowToggleButton.addEventListener(\"click\"" in js
     assert "flowSpeedSlider.addEventListener(\"input\"" in js
     assert "clipResetButton.addEventListener(\"click\"" in js
-    assert "renderSTLPreview(stlDownloadUrl(job)" in js
+    assert "renderSTLPreview(stlDownloadUrl(job), `${moduleLabel(module)} - ${job.job_id}`, job)" in js
+    assert "renderCADPreview(job)" in js
+    assert "appendDesignLog" in js
+    assert "startDesignLog(module)" in js
+    assert "new window.Chart" in js
     assert ".stl-viewer" in css
+    assert ".cad-viewer" in css
+    assert ".viewer-tabs" in css
+    assert ".design-log-list" in css
+    assert ".radar-chart-frame" in css
     assert ".viewer-controls" in css
     assert ".range-control" in css
     assert ".button-grid" in css

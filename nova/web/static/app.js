@@ -42,6 +42,12 @@ const auxiliaryViewButtons = document.querySelectorAll("[data-aux-view]");
 const flowToggleButton = document.querySelector("#flow-toggle-button");
 const flowSpeedSlider = document.querySelector("#flow-speed-slider");
 const flowSpeedValueEl = document.querySelector("#flow-speed-value");
+const renderModeButton = document.querySelector("#render-mode-button");
+const viewerTabButtons = document.querySelectorAll("[data-viewer-tab]");
+const viewerPanels = document.querySelectorAll("[data-viewer-panel]");
+const cadViewerEl = document.querySelector("#cad-viewer");
+const cadViewerStatusEl = document.querySelector("#cad-viewer-status");
+const designLogListEl = document.querySelector("#design-log-list");
 const tabButtons = document.querySelectorAll(".tab-button");
 const tabPanels = document.querySelectorAll("[data-tab-panel]");
 const moduleForms = document.querySelectorAll("[data-module-form]");
@@ -66,6 +72,9 @@ let allJobs = [];
 const selectedJobIds = new Set();
 let stlViewerState = null;
 let threeViewerLibrariesPromise = null;
+let cadViewerLibraryPromise = null;
+let chartLibraryPromise = null;
+let compareRadarChart = null;
 let pendingDeleteJobId = "";
 let deleteModalPreviousFocus = null;
 let activeDesignModule = "rocket-engine";
@@ -90,6 +99,20 @@ const THREE_VIEWER_SCRIPTS = [
     globalName: "THREE.OrbitControls"
   }
 ];
+
+const CAD_VIEWER_SCRIPT = {
+  label: "Online 3D Viewer",
+  url: "https://cdn.jsdelivr.net/npm/online-3d-viewer@0.18.0/build/engine/o3dv.min.js",
+  isAvailable: () => Boolean(window.OV && window.OV.EmbeddedViewer),
+  globalName: "OV.EmbeddedViewer"
+};
+
+const CHART_JS_SCRIPT = {
+  label: "Chart.js",
+  url: "https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js",
+  isAvailable: () => Boolean(window.Chart),
+  globalName: "window.Chart"
+};
 
 const modules = {
   "rocket-engine": {
@@ -389,6 +412,76 @@ function renderValidation(validation) {
   }).join("");
 }
 
+function timestampLabel() {
+  return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function setDesignLog(entries) {
+  const list = entries.length ? entries : [{ text: "No design running", state: "idle" }];
+  designLogListEl.innerHTML = list.map((entry) => {
+    const text = typeof entry === "string" ? entry : entry.text;
+    const state = typeof entry === "string" ? "done" : entry.state || "done";
+    const time = typeof entry === "string" ? timestampLabel() : entry.time || timestampLabel();
+    return `<li class="${escapeHtml(state)}"><span>${escapeHtml(time)}</span>${escapeHtml(text)}</li>`;
+  }).join("");
+}
+
+function appendDesignLog(text, state = "done") {
+  const existingIdle = designLogListEl.querySelector(".idle");
+  if (existingIdle) {
+    designLogListEl.replaceChildren();
+  }
+  const item = document.createElement("li");
+  item.className = state;
+  const time = document.createElement("span");
+  time.textContent = timestampLabel();
+  item.appendChild(time);
+  item.appendChild(document.createTextNode(text));
+  designLogListEl.appendChild(item);
+  designLogListEl.scrollTop = designLogListEl.scrollHeight;
+}
+
+function designLogSteps(module) {
+  const shared = ["Checking input constraints", "Exporting artifacts", "Recording job history"];
+  const moduleSteps = {
+    "rocket-engine": [
+      "Computing combustion",
+      "Sizing throat and nozzle contour",
+      "Solving cooling channel thermal loads",
+      "Checking structure and manufacturability",
+      "Generating engine geometry"
+    ],
+    "heat-exchanger": [
+      "Computing NTU-effectiveness",
+      "Sizing flow passages",
+      "Estimating pressure drop",
+      "Generating heat exchanger geometry"
+    ],
+    actuator: [
+      "Solving electromagnetic force",
+      "Sizing coil and wire gauge",
+      "Checking response time and heating",
+      "Generating actuator geometry"
+    ]
+  };
+  return [...shared.slice(0, 1), ...(moduleSteps[module] || moduleSteps["rocket-engine"]), ...shared.slice(1)];
+}
+
+function startDesignLog(module) {
+  setDesignLog([]);
+  appendDesignLog(`${moduleLabel(module)} design started`, "running");
+  return designLogSteps(module);
+}
+
+function finishDesignLog(job) {
+  const entries = Array.isArray(job?.design_log) ? job.design_log : [];
+  if (!entries.length) {
+    appendDesignLog("Design completed", "done");
+    return;
+  }
+  setDesignLog(entries.map((entry) => ({ text: `${entry} done`, state: "done" })));
+}
+
 function artifactDownloadUrl(job, artifact) {
   if (!job?.files?.[artifact]) {
     return "";
@@ -447,6 +540,7 @@ function updateSTLFullscreenButton() {
     requestAnimationFrame(() => {
       if (stlViewerState?.fitCamera === refreshViewport || stlViewerState?.resizeRenderer === refreshViewport) {
         refreshViewport();
+        stlViewerState?.renderer?.domElement?.focus?.();
       }
     });
   }
@@ -479,19 +573,17 @@ function clearSTLPreview() {
   if (stlViewerState?.flow?.dispose) {
     stlViewerState.flow.dispose();
   }
-  if (stlViewerState?.clipCapMaterial) {
-    stlViewerState.clipCapMaterial.dispose();
-  }
-  if (stlViewerState?.clipCapGroup) {
-    stlViewerState.clipCapGroup.children.forEach((child) => {
-      child.geometry?.dispose();
-    });
-  }
   if (stlViewerState?.geometry) {
     stlViewerState.geometry.dispose();
   }
   if (stlViewerState?.material) {
     stlViewerState.material.dispose();
+  }
+  if (stlViewerState?.clipHelperGroup) {
+    stlViewerState.clipHelperGroup.children.forEach((child) => {
+      child.geometry?.dispose();
+      child.material?.dispose();
+    });
   }
   if (stlViewerState?.renderer) {
     stlViewerState.renderer.dispose();
@@ -499,6 +591,8 @@ function clearSTLPreview() {
   stlViewerState = null;
   stlViewerEl.replaceChildren();
   flowToggleButton.textContent = "Play flow";
+  renderModeButton.hidden = true;
+  renderModeButton.textContent = "Mode: Solid";
   updateSTLFullscreenButton();
 }
 
@@ -516,6 +610,64 @@ function showSTLPreviewMessage(message, stlUrl = "") {
     wrapper.appendChild(link);
   }
   stlViewerEl.appendChild(wrapper);
+}
+
+function setViewerTab(tabName) {
+  viewerTabButtons.forEach((button) => {
+    const active = button.dataset.viewerTab === tabName;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  viewerPanels.forEach((panel) => {
+    const active = panel.dataset.viewerPanel === tabName;
+    panel.hidden = !active;
+    panel.classList.toggle("active", active);
+  });
+  if (tabName === "mesh" && stlViewerState?.fitCamera) {
+    requestAnimationFrame(() => stlViewerState?.fitCamera?.());
+  }
+}
+
+function showCADPreviewMessage(message, stepUrl = "") {
+  cadViewerEl.replaceChildren();
+  cadViewerStatusEl.textContent = message;
+  const wrapper = document.createElement("div");
+  wrapper.className = "muted preview-message";
+  const text = document.createElement("p");
+  text.textContent = message;
+  wrapper.appendChild(text);
+  if (stepUrl) {
+    const link = document.createElement("a");
+    link.href = stepUrl;
+    link.textContent = "Download STEP to view in FreeCAD";
+    wrapper.appendChild(link);
+  }
+  cadViewerEl.appendChild(wrapper);
+}
+
+async function renderCADPreview(job) {
+  const stepUrl = artifactDownloadUrl(job, "step");
+  cadViewerEl.replaceChildren();
+  if (!stepUrl) {
+    cadViewerStatusEl.textContent = "No STEP";
+    showCADPreviewMessage("CAD preview is unavailable because this job has no STEP artifact.");
+    return;
+  }
+  cadViewerStatusEl.textContent = "Loading CAD";
+  try {
+    await ensureCADViewerLibrary();
+    if (!window.OV?.EmbeddedViewer) {
+      throw new Error("OV.EmbeddedViewer is unavailable after loading Online 3D Viewer.");
+    }
+    const viewer = new window.OV.EmbeddedViewer(cadViewerEl, {
+      backgroundColor: new window.OV.RGBAColor(18, 25, 22, 255),
+      defaultColor: new window.OV.RGBColor(159, 199, 189)
+    });
+    viewer.LoadModelFromUrlList([stepUrl]);
+    cadViewerStatusEl.textContent = `${moduleLabel(job.module || "rocket-engine")} CAD`;
+  } catch (error) {
+    showCADPreviewMessage(`CAD preview unavailable: ${error.message}`, stepUrl);
+  }
 }
 
 function loadViewerScript(url, label) {
@@ -570,6 +722,40 @@ async function ensureThreeViewerLibraries() {
   return threeViewerLibrariesPromise;
 }
 
+async function ensureCADViewerLibrary() {
+  if (!cadViewerLibraryPromise) {
+    cadViewerLibraryPromise = (async () => {
+      if (!CAD_VIEWER_SCRIPT.isAvailable()) {
+        await loadViewerScript(CAD_VIEWER_SCRIPT.url, CAD_VIEWER_SCRIPT.label);
+      }
+      if (!CAD_VIEWER_SCRIPT.isAvailable()) {
+        throw new Error(`${CAD_VIEWER_SCRIPT.label} loaded from ${CAD_VIEWER_SCRIPT.url}, but ${CAD_VIEWER_SCRIPT.globalName} is unavailable.`);
+      }
+    })().catch((error) => {
+      cadViewerLibraryPromise = null;
+      throw error;
+    });
+  }
+  return cadViewerLibraryPromise;
+}
+
+async function ensureChartLibrary() {
+  if (!chartLibraryPromise) {
+    chartLibraryPromise = (async () => {
+      if (!CHART_JS_SCRIPT.isAvailable()) {
+        await loadViewerScript(CHART_JS_SCRIPT.url, CHART_JS_SCRIPT.label);
+      }
+      if (!CHART_JS_SCRIPT.isAvailable()) {
+        throw new Error(`${CHART_JS_SCRIPT.label} loaded from ${CHART_JS_SCRIPT.url}, but ${CHART_JS_SCRIPT.globalName} is unavailable.`);
+      }
+    })().catch((error) => {
+      chartLibraryPromise = null;
+      throw error;
+    });
+  }
+  return chartLibraryPromise;
+}
+
 async function fetchSTLGeometry(stlUrl) {
   let response;
   try {
@@ -588,7 +774,7 @@ async function fetchSTLGeometry(stlUrl) {
   }
 }
 
-async function renderSTLPreview(stlUrl, label) {
+async function renderSTLPreview(stlUrl, label, job = null) {
   clearSTLPreview();
   if (!stlUrl) {
     stlPreviewSectionEl.hidden = true;
@@ -612,8 +798,10 @@ async function renderSTLPreview(stlUrl, label) {
     updateClipping: null,
     applySectionView: null,
     applyAuxiliaryView: null,
-    clipCapGroup: null,
-    clipCapMaterial: null,
+    applyRenderMode: null,
+    cycleRenderMode: null,
+    renderMode: "solid",
+    clipHelperGroup: null,
     flow: null
   };
   stlViewerState = state;
@@ -654,6 +842,8 @@ async function renderSTLPreview(stlUrl, label) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.localClippingEnabled = true;
   renderer.clippingPlanes = [];
+  renderer.domElement.tabIndex = 0;
+  renderer.domElement.style.touchAction = "none";
   stlViewerEl.appendChild(renderer.domElement);
   state.renderer = renderer;
 
@@ -670,6 +860,14 @@ async function renderSTLPreview(stlUrl, label) {
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
   controls.enablePan = false;
+  controls.enableZoom = true;
+  controls.zoomSpeed = 1.15;
+  controls.minZoom = 0.2;
+  controls.maxZoom = 8;
+  if (THREE.TOUCH && controls.touches) {
+    controls.touches.ONE = THREE.TOUCH.ROTATE;
+    controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
+  }
   controls.minDistance = 0.35;
   state.controls = controls;
 
@@ -737,59 +935,54 @@ async function renderSTLPreview(stlUrl, label) {
   mesh.name = label;
   scene.add(mesh);
 
+  function applyRenderMode(mode) {
+    const safeMode = ["solid", "wireframe", "xray"].includes(mode) ? mode : "solid";
+    state.renderMode = safeMode;
+    material.wireframe = safeMode === "wireframe";
+    material.transparent = safeMode === "xray";
+    material.opacity = safeMode === "xray" ? 0.3 : 1.0;
+    material.depthWrite = safeMode !== "xray";
+    material.needsUpdate = true;
+    renderModeButton.hidden = false;
+    renderModeButton.textContent = safeMode === "wireframe" ? "Mode: Wireframe" : safeMode === "xray" ? "Mode: X-ray" : "Mode: Solid";
+    renderModeButton.setAttribute("aria-pressed", safeMode === "solid" ? "false" : "true");
+  }
+
+  function cycleRenderMode() {
+    const next = state.renderMode === "solid" ? "wireframe" : state.renderMode === "wireframe" ? "xray" : "solid";
+    applyRenderMode(next);
+  }
+
+  state.applyRenderMode = applyRenderMode;
+  state.cycleRenderMode = cycleRenderMode;
+  applyRenderMode("solid");
+
   const halfSize = {
     x: size.x / 2,
     y: size.y / 2,
     z: size.z / 2
   };
-  const clipCapGroup = new THREE.Group();
-  const clipCapMaterial = new THREE.MeshBasicMaterial({
-    color: 0xffcf6e,
-    side: THREE.DoubleSide,
-    transparent: true,
-    opacity: 0.78,
-    depthWrite: false
-  });
-  scene.add(clipCapGroup);
-  state.clipCapGroup = clipCapGroup;
-  state.clipCapMaterial = clipCapMaterial;
+  const clipHelperGroup = new THREE.Group();
+  scene.add(clipHelperGroup);
+  state.clipHelperGroup = clipHelperGroup;
 
-  function makeClipCap(axis, position) {
-    const pad = 1.08;
-    let geometry;
-    const mesh = new THREE.Mesh(undefined, clipCapMaterial);
-    if (axis === "x") {
-      geometry = new THREE.PlaneGeometry(Math.max(size.y * pad, 1), Math.max(size.z * pad, 1));
-      mesh.rotation.y = Math.PI / 2;
-      mesh.position.x = position;
-    } else if (axis === "y") {
-      geometry = new THREE.PlaneGeometry(Math.max(size.x * pad, 1), Math.max(size.z * pad, 1));
-      mesh.rotation.x = Math.PI / 2;
-      mesh.position.y = position;
-    } else {
-      geometry = new THREE.PlaneGeometry(Math.max(size.x * pad, 1), Math.max(size.y * pad, 1));
-      mesh.position.z = position;
-    }
-    mesh.geometry = geometry;
-    mesh.renderOrder = 3;
-    return mesh;
-  }
-
-  function clearClipCaps() {
-    clipCapGroup.children.forEach((child) => {
+  function clearClipHelpers() {
+    clipHelperGroup.children.forEach((child) => {
       child.geometry?.dispose();
+      child.material?.dispose();
     });
-    clipCapGroup.clear();
+    clipHelperGroup.clear();
   }
 
   function updateClipping() {
     const planes = [];
-    clearClipCaps();
+    clearClipHelpers();
     const axisNormals = {
       x: new THREE.Vector3(1, 0, 0),
       y: new THREE.Vector3(0, 1, 0),
       z: new THREE.Vector3(0, 0, 1)
     };
+    const helperSize = Math.max(size.x, size.y, size.z, 1) * 1.04;
     for (const axis of Object.keys(clipSliders)) {
       const percent = Number(clipSliders[axis].value);
       if (!Number.isFinite(percent) || percent <= 0) {
@@ -797,8 +990,11 @@ async function renderSTLPreview(stlUrl, label) {
       }
       const extent = halfSize[axis] * 2 || 1;
       const position = -halfSize[axis] + extent * (Math.min(percent, 100) / 100);
-      planes.push(new THREE.Plane(axisNormals[axis], -position));
-      clipCapGroup.add(makeClipCap(axis, position));
+      const plane = new THREE.Plane(axisNormals[axis], -position);
+      const helper = new THREE.PlaneHelper(plane, helperSize, 0xffcf6e);
+      helper.renderOrder = 5;
+      planes.push(plane);
+      clipHelperGroup.add(helper);
     }
     renderer.clippingPlanes = planes;
     updateClipControlLabels();
@@ -818,7 +1014,21 @@ async function renderSTLPreview(stlUrl, label) {
     const extents = [Math.max(size.x, 1), Math.max(size.y, 1), Math.max(size.z, 1)];
     const primaryAxis = extents.indexOf(Math.max(...extents));
     const radialAxes = [0, 1, 2].filter((axis) => axis !== primaryAxis);
-    const radialExtent = Math.max(Math.min(extents[radialAxes[0]], extents[radialAxes[1]]) * 0.28, maxDimension * 0.035);
+    const nozzleMetadata = job?.metadata?.nozzle || job?.metadata?.geometry || {};
+    const numericMetadata = (key, fallback) => {
+      const value = Number(nozzleMetadata?.[key]);
+      return Number.isFinite(value) && value > 0 ? value : fallback;
+    };
+    const totalLengthMm = numericMetadata("total_length_mm", extents[primaryAxis]);
+    const chamberLengthMm = numericMetadata("chamber_length_mm", totalLengthMm * 0.38);
+    const convergenceLengthMm = numericMetadata("convergence_length_mm", totalLengthMm * 0.14);
+    const chamberRadiusMm = numericMetadata("chamber_radius_mm", Math.min(extents[radialAxes[0]], extents[radialAxes[1]]) * 0.30);
+    const throatRadiusMm = numericMetadata("throat_radius_mm", chamberRadiusMm * 0.42);
+    const exitRadiusMm = numericMetadata("exit_radius_mm", chamberRadiusMm * 0.88);
+    const maxRadiusMm = Math.max(chamberRadiusMm, throatRadiusMm, exitRadiusMm, 1);
+    const radialFitScale = (Math.min(extents[radialAxes[0]], extents[radialAxes[1]]) * 0.44) / maxRadiusMm;
+    const chamberEnd = Math.min(chamberLengthMm / totalLengthMm, 0.86);
+    const throatAt = Math.min((chamberLengthMm + convergenceLengthMm) / totalLengthMm, 0.94);
     const flowGeometry = new THREE.BufferGeometry();
     const flowMaterial = new THREE.PointsMaterial({
       size: Math.max(maxDimension * 0.018, 0.75),
@@ -841,8 +1051,26 @@ async function renderSTLPreview(stlUrl, label) {
       return x * x * (3 - 2 * x);
     }
 
+    function localNozzleRadiusMm(value) {
+      if (value <= chamberEnd) {
+        return chamberRadiusMm;
+      }
+      if (value <= throatAt) {
+        const blend = smoothstep(chamberEnd, throatAt, value);
+        return chamberRadiusMm + (throatRadiusMm - chamberRadiusMm) * blend;
+      }
+      const blend = smoothstep(throatAt, 1, value);
+      return throatRadiusMm + (exitRadiusMm - throatRadiusMm) * blend;
+    }
+
     function throatBoost(value) {
-      return Math.exp(-Math.pow((value - 0.62) / 0.11, 2));
+      return Math.exp(-Math.pow((value - throatAt) / 0.075, 2));
+    }
+
+    function localVelocityScale(value) {
+      const localRadius = Math.max(localNozzleRadiusMm(value), throatRadiusMm * 0.8, 0.1);
+      const areaRatio = Math.pow(chamberRadiusMm / localRadius, 2);
+      return Math.min(4.2, 0.65 + areaRatio * 0.45 + throatBoost(value) * 1.8);
     }
 
     function setVectorComponent(index, axis, value) {
@@ -851,14 +1079,15 @@ async function renderSTLPreview(stlUrl, label) {
 
     function writeParticle(index) {
       const t = progress[index];
-      const boost = throatBoost(t);
-      const exitExpansion = smoothstep(0.66, 1, t);
-      const inletBlend = 1 - smoothstep(0, 0.18, t);
-      const chamberRadius = radialExtent * (1 - 0.68 * boost + 0.46 * exitExpansion);
-      const inletRadius = kind[index] ? radialExtent * 1.05 : radialExtent * 0.14;
-      const radius = chamberRadius * (1 - inletBlend) + inletRadius * inletBlend;
-      const baseAngle = kind[index] ? (portIndex[index] / 8) * Math.PI * 2 : phase[index];
-      const swirl = baseAngle + t * (kind[index] ? 2.4 : 5.2);
+      const wallRadius = localNozzleRadiusMm(t) * radialFitScale;
+      const inletBlend = 1 - smoothstep(0, Math.max(chamberEnd * 0.35, 0.12), t);
+      const isOxidizer = kind[index] === 1;
+      const coreRadius = Math.max(wallRadius * 0.16, maxDimension * 0.008);
+      const fuelRadius = wallRadius * (0.84 + 0.05 * Math.sin(t * Math.PI * 10 + phase[index]));
+      const inletRadius = isOxidizer ? coreRadius * 0.48 : wallRadius * 1.04;
+      const radius = (isOxidizer ? coreRadius : fuelRadius) * (1 - inletBlend) + inletRadius * inletBlend;
+      const baseAngle = isOxidizer ? phase[index] : (portIndex[index] / 8) * Math.PI * 2;
+      const swirl = baseAngle + t * (isOxidizer ? 2.6 : 13.5);
       const axisStart = extents[primaryAxis] / 2;
       const axisPosition = axisStart - t * extents[primaryAxis];
       const fade = t > 0.82 ? Math.max(0, 1 - (t - 0.82) / 0.18) : 1;
@@ -897,7 +1126,7 @@ async function renderSTLPreview(stlUrl, label) {
         return;
       }
       for (let index = 0; index < particleCount; index += 1) {
-        progress[index] += delta * 0.13 * speed * (1 + throatBoost(progress[index]) * 2.8);
+        progress[index] += delta * 0.075 * speed * localVelocityScale(progress[index]);
         if (progress[index] > 1) {
           progress[index] -= Math.floor(progress[index]);
           phase[index] = Math.random() * Math.PI * 2;
@@ -1005,6 +1234,7 @@ function renderResults(job) {
   activeJobEl.textContent = `${moduleLabel(module)} - ${job.job_id}`;
   renderMetricCards(resultCardsEl, module, job.metrics || {});
   renderValidation(job.validation);
+  finishDesignLog(job);
 
   downloadButtonsEl.classList.remove("muted");
   downloadButtonsEl.innerHTML = artifactLinks(job, {
@@ -1013,7 +1243,9 @@ function renderResults(job) {
     thermal_map: "Download Thermal Map",
     report: "Download PDF"
   }) || "No artifacts available";
-  renderSTLPreview(stlDownloadUrl(job), `${moduleLabel(module)} - ${job.job_id}`);
+  setViewerTab("mesh");
+  renderSTLPreview(stlDownloadUrl(job), `${moduleLabel(module)} - ${job.job_id}`, job);
+  renderCADPreview(job);
 }
 
 function renderMetricCards(container, module, metrics) {
@@ -1202,6 +1434,113 @@ function selectedJobs() {
   return allJobs.filter((job) => selectedJobIds.has(job.job_id));
 }
 
+function engineRadarMetrics(job) {
+  const metrics = job.metrics || {};
+  const massKg = Number(metrics.engine_mass_kg) || 1;
+  const thrustN = Number(metrics.thrust_N) || 0;
+  const thrustToWeight = thrustN / Math.max(massKg * 9.80665, 1);
+  const printTimeHours = Number(metrics.print_time_hours) || 0;
+  const costEstimate = massKg * 1200 + printTimeHours * 85;
+  return {
+    isp: Number(metrics.specific_impulse_s) || 0,
+    thrustToWeight,
+    chamberTemp: Number(metrics.chamber_temp_K) || 0,
+    printTime: printTimeHours,
+    costEstimate
+  };
+}
+
+function normalizeRadarDatasets(jobs) {
+  const values = jobs.map(engineRadarMetrics);
+  const maxByKey = {
+    isp: Math.max(...values.map((item) => item.isp), 1),
+    thrustToWeight: Math.max(...values.map((item) => item.thrustToWeight), 1),
+    chamberTemp: Math.max(...values.map((item) => item.chamberTemp), 1),
+    printTime: Math.max(...values.map((item) => item.printTime), 1),
+    costEstimate: Math.max(...values.map((item) => item.costEstimate), 1)
+  };
+  const palette = [
+    ["rgba(79, 184, 158, 0.24)", "#4fb89e"],
+    ["rgba(220, 121, 74, 0.20)", "#dc794a"],
+    ["rgba(88, 133, 214, 0.20)", "#5885d6"]
+  ];
+  return jobs.map((job, index) => {
+    const item = values[index];
+    const [backgroundColor, borderColor] = palette[index % palette.length];
+    return {
+      label: jobDisplayName(job),
+      data: [
+        (item.isp / maxByKey.isp) * 100,
+        (item.thrustToWeight / maxByKey.thrustToWeight) * 100,
+        (item.chamberTemp / maxByKey.chamberTemp) * 100,
+        (1 - item.printTime / maxByKey.printTime) * 100,
+        (1 - item.costEstimate / maxByKey.costEstimate) * 100
+      ].map((value) => Math.max(0, Math.min(100, value))),
+      backgroundColor,
+      borderColor,
+      borderWidth: 2,
+      pointRadius: 3
+    };
+  });
+}
+
+async function renderCompareRadarChart(jobs) {
+  const canvas = document.querySelector("#compare-radar-chart");
+  const status = document.querySelector("#compare-radar-status");
+  if (compareRadarChart) {
+    compareRadarChart.destroy();
+    compareRadarChart = null;
+  }
+  if (!canvas) {
+    return;
+  }
+  try {
+    await ensureChartLibrary();
+    compareRadarChart = new window.Chart(canvas, {
+      type: "radar",
+      data: {
+        labels: ["Isp", "Thrust/Weight", "Chamber Temp", "Print Time", "Cost Estimate"],
+        datasets: normalizeRadarDatasets(jobs)
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          r: {
+            beginAtZero: true,
+            max: 100,
+            ticks: { display: false },
+            pointLabels: { color: getComputedStyle(document.documentElement).getPropertyValue("--ink").trim() || "#17202a" },
+            grid: { color: getComputedStyle(document.documentElement).getPropertyValue("--line").trim() || "#d8dfda" },
+            angleLines: { color: getComputedStyle(document.documentElement).getPropertyValue("--line").trim() || "#d8dfda" }
+          }
+        },
+        plugins: {
+          legend: {
+            labels: {
+              color: getComputedStyle(document.documentElement).getPropertyValue("--ink").trim() || "#17202a"
+            }
+          },
+          tooltip: {
+            callbacks: {
+              label(context) {
+                return `${context.dataset.label}: ${formatValue(context.parsed.r)} normalized`;
+              }
+            }
+          }
+        }
+      }
+    });
+    if (status) {
+      status.textContent = "Normalized to the selected jobs; lower print time and cost score higher.";
+    }
+  } catch (error) {
+    if (status) {
+      status.textContent = `Radar chart unavailable: ${error.message}`;
+    }
+  }
+}
+
 function renderCompare() {
   const jobs = selectedJobs();
   if (jobs.length < 2) {
@@ -1211,6 +1550,13 @@ function renderCompare() {
 
   const metricKeys = [...new Set(jobs.flatMap((job) => metricDefinition(job.module || "rocket-engine").map(([key]) => key)))];
   compareContentEl.innerHTML = `
+    <section class="compare-radar" aria-label="Engine comparison radar chart">
+      <h3>Engine Comparison Radar</h3>
+      <div class="radar-chart-frame">
+        <canvas id="compare-radar-chart"></canvas>
+      </div>
+      <p id="compare-radar-status" class="muted">Loading radar chart</p>
+    </section>
     <table class="compare-table">
       <thead>
         <tr>
@@ -1236,6 +1582,7 @@ function renderCompare() {
     </table>
   `;
   comparePanelEl.hidden = false;
+  renderCompareRadarChart(jobs);
 }
 
 async function setStarred(jobId, starred) {
@@ -1314,6 +1661,14 @@ function bindDesignForm(module, config) {
     setError("");
     setStatus(`Designing ${config.label}`);
     config.button.disabled = true;
+    const steps = startDesignLog(module);
+    let stepIndex = 0;
+    const logTimer = window.setInterval(() => {
+      if (stepIndex < steps.length) {
+        appendDesignLog(`${steps[stepIndex]}... done`, "done");
+        stepIndex += 1;
+      }
+    }, 550);
 
     try {
       const response = await fetch(config.endpoint, {
@@ -1327,13 +1682,19 @@ function bindDesignForm(module, config) {
       if (!response.ok) {
         throw new Error(payload.detail || "Design failed");
       }
+      while (stepIndex < steps.length) {
+        appendDesignLog(`${steps[stepIndex]}... done`, "done");
+        stepIndex += 1;
+      }
       renderResults(payload.job);
       await loadHistory();
       setStatus("Complete");
     } catch (error) {
+      appendDesignLog(`Design failed: ${error.message}`, "failed");
       setError(error.message);
       setStatus("Failed");
     } finally {
+      window.clearInterval(logTimer);
       config.button.disabled = false;
     }
   });
@@ -1471,6 +1832,18 @@ document.addEventListener("keydown", (event) => {
 
 stlFullscreenButton.addEventListener("click", toggleSTLFullscreen);
 document.addEventListener("fullscreenchange", updateSTLFullscreenButton);
+
+renderModeButton.addEventListener("click", () => {
+  if (stlViewerState?.cycleRenderMode) {
+    stlViewerState.cycleRenderMode();
+  }
+});
+
+viewerTabButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    setViewerTab(button.dataset.viewerTab || "mesh");
+  });
+});
 
 for (const slider of Object.values(clipSliders)) {
   slider.addEventListener("input", () => {

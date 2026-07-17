@@ -231,15 +231,36 @@
                   </article>
                 </div>
 
+                <section id="design-log-panel" class="design-log-panel">
+                  <div class="panel-heading compact-heading">
+                    <h2>Design Log</h2>
+                    <span class="muted">Realtime</span>
+                  </div>
+                  <ol id="design-log-list" class="design-log-list">
+                    <li class="muted">No design running</li>
+                  </ol>
+                </section>
+
                 <section id="stl-preview-section" class="stl-preview-section" hidden>
                   <div class="panel-heading preview-heading">
-                    <h2>3D Preview</h2>
+                    <h2>3D Viewer</h2>
                     <div class="preview-actions">
-                      <span id="stl-preview-status" class="muted">No STL</span>
+                      <span id="stl-preview-status" class="muted">No model</span>
+                      <button id="render-mode-button" class="secondary viewer-action" type="button" hidden>Mode: Solid</button>
                       <button id="stl-fullscreen-button" class="secondary viewer-action" type="button" hidden>Fullscreen</button>
                     </div>
                   </div>
-                  <div id="stl-viewer" class="stl-viewer" aria-label="3D STL preview"></div>
+                  <div class="viewer-tabs" role="tablist" aria-label="3D viewer modes">
+                    <button id="mesh-view-tab" class="viewer-tab active" type="button" data-viewer-tab="mesh" role="tab" aria-selected="true">Mesh STL</button>
+                    <button id="cad-view-tab" class="viewer-tab" type="button" data-viewer-tab="cad" role="tab" aria-selected="false">CAD STEP</button>
+                  </div>
+                  <div id="mesh-view-panel" class="viewer-panel active" data-viewer-panel="mesh" role="tabpanel" aria-labelledby="mesh-view-tab">
+                    <div id="stl-viewer" class="stl-viewer" aria-label="3D STL preview"></div>
+                  </div>
+                  <div id="cad-view-panel" class="viewer-panel" data-viewer-panel="cad" role="tabpanel" aria-labelledby="cad-view-tab" hidden>
+                    <div id="cad-viewer" class="cad-viewer" aria-label="STEP CAD preview"></div>
+                    <p id="cad-viewer-status" class="muted cad-status">No STEP</p>
+                  </div>
                   <div id="stl-viewer-controls" class="viewer-controls">
                     <section class="viewer-control-group" aria-label="Cross-section clipping controls">
                       <div class="viewer-control-heading">

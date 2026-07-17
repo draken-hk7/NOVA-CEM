@@ -418,7 +418,31 @@ class PerformanceReporter:
         for key, value in manufacturing.items():
             if key != "warnings":
                 lines.append(f"  {key}: {value}")
-        ports = payload.get("design", {}).get("metadata", {}).get("nozzle", {}).get("coolant_ports", {})
+        if run_result.module == "rocket-engine":
+            lines.extend(
+                [
+                    "",
+                    "Tolerance Analysis:",
+                    "  Throat diameter: +/-0.05 mm",
+                    "  Cooling channel width: +/-0.10 mm",
+                    "  Wall thickness: +/-0.05 mm",
+                    "  Flange bolt-hole position: +/-0.10 mm",
+                ]
+            )
+            feed_budget = _rocket_metadata(payload).get("feed_pressure_budget", {})
+            if feed_budget:
+                lines.extend(
+                    [
+                        "",
+                        "Propellant Feed Pressure Budget:",
+                        f"  Chamber pressure: {feed_budget.get('chamber_pressure_bar')} bar",
+                        f"  Injector drop (20%): {feed_budget.get('injector_drop_bar')} bar",
+                        f"  Cooling channel drop: {feed_budget.get('cooling_channel_drop_bar')} bar",
+                        f"  Line losses (5%): {feed_budget.get('line_losses_bar')} bar",
+                        f"  Required tank pressure: {feed_budget.get('required_tank_pressure_bar')} bar",
+                    ]
+                )
+        ports = _rocket_metadata(payload).get("nozzle", {}).get("coolant_ports", {})
         if ports:
             lines.extend(["", "Coolant Ports:"])
             for name, port in ports.items():
@@ -428,7 +452,7 @@ class PerformanceReporter:
                     f"  {name}: diameter {port.get('diameter_mm')} mm, bore {port.get('bore_diameter_mm')} mm, "
                     f"thread {port.get('thread_spec')}, position [{position_text}] mm"
                 )
-        manifold = payload.get("design", {}).get("metadata", {}).get("manifold", {})
+        manifold = _rocket_metadata(payload).get("manifold", {})
         if manifold:
             lines.extend(["", "Propellant Manifold:"])
             oxidizer = manifold.get("oxidizer_manifold", {})
@@ -518,6 +542,16 @@ class PerformanceReporter:
             f"7 0 obj << /Length {len(map_stream)} >> stream\n".encode("ascii") + map_stream + b"\nendstream endobj\n",
         ]
         return objects
+
+
+def _rocket_metadata(payload: dict) -> dict:
+    design = payload.get("design", {})
+    metadata = design.get("metadata", {})
+    if isinstance(metadata, dict) and metadata:
+        return metadata
+    geometry = design.get("geometry", {})
+    geometry_metadata = geometry.get("metadata", {}) if isinstance(geometry, dict) else {}
+    return geometry_metadata if isinstance(geometry_metadata, dict) else {}
 
 
 def _thermal_map_pdf_commands(data: ThermalMapData) -> list[str]:

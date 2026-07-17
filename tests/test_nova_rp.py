@@ -29,9 +29,12 @@ def test_nova_rp_design_returns_geometry_performance_and_trace():
     assert result.performance.thrust_N == 5000.0
     assert result.performance.specific_impulse_s > 250.0
     assert result.structural.passed
-    assert result.validation.passed
-    assert len(result.validation.checks) == 4
+    assert not result.validation.passed
+    assert len(result.validation.checks) == 5
     assert any(check.name == "Propellant manifold wall" and check.passed for check in result.validation.checks)
+    stability_check = next(check for check in result.validation.checks if check.name == "Combustion stability acoustic mode")
+    assert not stability_check.passed
+    assert 1000.0 <= stability_check.actual_value <= 5000.0
     assert result.manufacturing.passed
     assert result.trace
 
@@ -63,6 +66,8 @@ def test_nova_rp_design_returns_geometry_performance_and_trace():
     assert b"Coolant Ports" in report_bytes
     assert b"Propellant Manifold" in report_bytes
     assert b"Structural Validation" in report_bytes
+    assert b"Tolerance Analysis" in report_bytes
+    assert b"Propellant Feed Pressure Budget" in report_bytes
     assert b"Embedded Thermal Map" in report_bytes
     assert b"/Count 2" in report_bytes
 
@@ -91,8 +96,10 @@ def test_regenerative_cooling_channel_wall_has_validator_margin(monkeypatch):
     result = NovaRP().design(spec)
     cooling_check = next(check for check in result.validation.checks if check.name == "Cooling channel wall")
 
-    assert result.validation.passed
+    stability_check = next(check for check in result.validation.checks if check.name == "Combustion stability acoustic mode")
+    assert not result.validation.passed
     assert cooling_check.actual_value >= 0.6
+    assert not stability_check.passed
 
 
 def test_nova_rp_physics_only_mode_keeps_report_without_cad_artifacts(monkeypatch):
@@ -113,7 +120,9 @@ def test_nova_rp_physics_only_mode_keeps_report_without_cad_artifacts(monkeypatc
     assert result.geometry is None
     assert result.performance.specific_impulse_s > 250.0
     assert result.mass_kg > 0.0
-    assert result.validation.passed
+    stability_check = next(check for check in result.validation.checks if check.name == "Combustion stability acoustic mode")
+    assert not result.validation.passed
+    assert not stability_check.passed
     assert set(files) == {"thermal_map", "report", "json"}
     assert set(urls) == {"thermal_map", "report"}
     assert (artifact_dir / "report.pdf").exists()

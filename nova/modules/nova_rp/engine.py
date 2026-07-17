@@ -98,6 +98,8 @@ class NovaRP:
             coolant=CoolantProperties.for_propellant(spec.propellant),
             flow_rate_kg_s=self._coolant_flow_rate(spec, combustion),
         )
+        feed_pressure_budget = self._feed_pressure_budget(spec, cooling)
+        combustion_gas_speed_of_sound_m_s = self._combustion_speed_of_sound_m_s(combustion)
         material = get_material_properties(spec.material)
         if cooling.max_wall_temperature_K > material["max_service_temp_K"]:
             raise PhysicsViolationError(
@@ -136,9 +138,15 @@ class NovaRP:
                 "manufacturing_process": spec.manufacturing_process,
                 "chamber_pressure_bar": spec.chamber_pressure_bar,
                 "chamber_radius_mm": chamber_radius_mm,
+                "chamber_length_mm": chamber_length_mm,
+                "chamber_temp_K": combustion.T_c,
+                "combustion_gamma": combustion.gamma,
+                "combustion_gas_speed_of_sound_m_s": combustion_gas_speed_of_sound_m_s,
                 "chamber_wall_thickness_mm": wall_thickness_mm,
                 "actual_chamber_wall_thickness_mm": wall_thickness_mm,
                 "cooling_channel_wall_mm": nozzle_geo.channels.wall_thickness_mm,
+                "cooling_channel_pressure_drop_bar": cooling.pressure_drop_bar,
+                "feed_pressure_budget": feed_pressure_budget,
                 "propellant_manifold": manifold_metadata,
                 "manifold_wall_thickness_mm": float(
                     manifold_metadata.get(
@@ -186,7 +194,13 @@ class NovaRP:
             mass_kg=final_geometry.mass_properties.mass,
             injector=injector,
             trace=trace,
-            metadata={"combustion": combustion, "nozzle": nozzle_geo.metadata, "injector": injector.metadata, "manifold": manifold_metadata},
+            metadata={
+                "combustion": combustion,
+                "nozzle": nozzle_geo.metadata,
+                "injector": injector.metadata,
+                "manifold": manifold_metadata,
+                "feed_pressure_budget": feed_pressure_budget,
+            },
             validation=validation,
         )
 
@@ -309,6 +323,8 @@ class NovaRP:
             coolant=CoolantProperties.for_propellant(spec.propellant),
             flow_rate_kg_s=self._coolant_flow_rate(spec, combustion),
         )
+        feed_pressure_budget = self._feed_pressure_budget(spec, cooling)
+        combustion_gas_speed_of_sound_m_s = self._combustion_speed_of_sound_m_s(combustion)
         material = get_material_properties(spec.material)
         if cooling.max_wall_temperature_K > material["max_service_temp_K"]:
             raise PhysicsViolationError(
@@ -319,7 +335,16 @@ class NovaRP:
                 unit=" K",
             )
 
-        validation_metadata = self._validation_metadata(spec, metadata, wall_thickness_mm, channels)
+        validation_metadata = self._validation_metadata(
+            spec,
+            metadata,
+            wall_thickness_mm,
+            channels,
+            combustion=combustion,
+            cooling=cooling,
+            feed_pressure_budget=feed_pressure_budget,
+            combustion_gas_speed_of_sound_m_s=combustion_gas_speed_of_sound_m_s,
+        )
         nozzle_proxy = SimpleNamespace(solid=SimpleNamespace(metadata=validation_metadata))
         structural = StructuralSolver().validate_chamber(nozzle_proxy, spec, combustion)
         if not structural.passed:
@@ -361,7 +386,12 @@ class NovaRP:
                 metadata={},
             ),
             trace=trace,
-            metadata={"combustion": combustion, "nozzle": metadata, "geometry_enabled": False},
+            metadata={
+                "combustion": combustion,
+                "nozzle": metadata,
+                "geometry_enabled": False,
+                "feed_pressure_budget": feed_pressure_budget,
+            },
             validation=validation,
         )
 
@@ -427,8 +457,13 @@ class NovaRP:
         nozzle_metadata: dict,
         wall_thickness_mm: float,
         channels: ChannelGeometry,
+        *,
+        combustion: object | None = None,
+        cooling: object | None = None,
+        feed_pressure_budget: dict | None = None,
+        combustion_gas_speed_of_sound_m_s: float | None = None,
     ) -> dict:
-        return {
+        metadata = {
             **nozzle_metadata,
             "material": spec.material,
             "manufacturing_process": spec.manufacturing_process,
@@ -437,6 +472,40 @@ class NovaRP:
             "actual_chamber_wall_thickness_mm": wall_thickness_mm,
             "cooling_channel_wall_mm": channels.wall_thickness_mm,
             "minimum_local_thickness_mm": min(wall_thickness_mm, channels.wall_thickness_mm),
+        }
+        if combustion is not None:
+            metadata.update(
+                {
+                    "chamber_temp_K": getattr(combustion, "T_c", None),
+                    "combustion_gamma": getattr(combustion, "gamma", None),
+                    "combustion_gas_speed_of_sound_m_s": combustion_gas_speed_of_sound_m_s,
+                }
+            )
+        if cooling is not None:
+            metadata["cooling_channel_pressure_drop_bar"] = getattr(cooling, "pressure_drop_bar", 0.0)
+        if feed_pressure_budget is not None:
+            metadata["feed_pressure_budget"] = feed_pressure_budget
+        return metadata
+
+    def _combustion_speed_of_sound_m_s(self, combustion: object) -> float:
+        gamma = float(getattr(combustion, "gamma", 1.22) or 1.22)
+        molecular_weight_g_mol = float(getattr(combustion, "molecular_weight_g_mol", 24.0) or 24.0)
+        chamber_temp_K = float(getattr(combustion, "T_c", 3200.0) or 3200.0)
+        gas_constant_J_kgK = 8314.46261815324 / max(molecular_weight_g_mol, 1.0e-6)
+        return math.sqrt(max(gamma * gas_constant_J_kgK * chamber_temp_K, 0.0))
+
+    def _feed_pressure_budget(self, spec: RocketEngineSpec, cooling: object) -> dict[str, float]:
+        chamber_pressure_bar = float(spec.chamber_pressure_bar)
+        injector_drop_bar = 0.20 * chamber_pressure_bar
+        cooling_drop_bar = max(float(getattr(cooling, "pressure_drop_bar", 0.0) or 0.0), 0.0)
+        line_losses_bar = 0.05 * chamber_pressure_bar
+        required_tank_pressure_bar = chamber_pressure_bar + injector_drop_bar + cooling_drop_bar + line_losses_bar
+        return {
+            "chamber_pressure_bar": round(chamber_pressure_bar, 4),
+            "injector_drop_bar": round(injector_drop_bar, 4),
+            "cooling_channel_drop_bar": round(cooling_drop_bar, 4),
+            "line_losses_bar": round(line_losses_bar, 4),
+            "required_tank_pressure_bar": round(required_tank_pressure_bar, 4),
         }
 
     def _physics_only_manufacturing(
