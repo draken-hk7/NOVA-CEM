@@ -151,6 +151,8 @@ class RocketNozzleGeometry:
             "total_length_mm": total_length + 6.0,
             "min_wall_thickness_mm": wall_thickness_mm,
             "min_channel_diameter_mm": min(channel_width, channel_depth_mm),
+            "channel_width_mm": channel_width,
+            "channel_depth_mm": channel_depth_mm,
             "outer_jacket_mm": outer_jacket_mm,
             "n_cooling_channels": n_cooling_channels,
             "n_cooling_channels_cut": n_cooling_channels,
@@ -159,6 +161,8 @@ class RocketNozzleGeometry:
             "channel_cut_diameter_mm": channel_cut_diameter,
             "channel_cut_start_z_mm": channel_start_z,
             "channel_cut_end_z_mm": channel_end_z,
+            "injector_bolt_circle_diameter_mm": 2.0 * (injector_flange_outer_radius - 4.0),
+            "injector_bolt_hole_count": self._bolt_count(injector_flange_outer_radius),
             "coolant_ports": port_metadata,
             "max_overhang_angle_deg": 38.0,
             "feature_trace": [

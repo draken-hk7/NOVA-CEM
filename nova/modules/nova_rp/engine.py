@@ -8,7 +8,9 @@ from types import SimpleNamespace
 
 import numpy as np
 
+from nova.core.analysis import analyze_combustion_stability, estimate_thermal_fatigue_life, size_ignition_system
 from nova.core.exceptions import PhysicsViolationError
+from nova.core.geometry_engine.picogk_bridge import PicoGKBridge
 from nova.core.geometry_engine.primitives import GeometryBuilder, MeshSolid
 from nova.core.geometry_engine.rocket_geometry import InjectorHeadGeometry, RocketNozzleGeometry
 from nova.core.input_schema import RocketEngineSpec
@@ -73,21 +75,32 @@ class NovaRP:
                 chamber_length_mm=chamber_length_mm,
             )
 
+        geometry_backend = PicoGKBridge()
         if spec.nozzle_type == "bell":
-            nozzle_geo = RocketNozzleGeometry().bell_nozzle(
-                throat_radius_mm=throat_radius_mm,
-                chamber_radius_mm=chamber_radius_mm,
-                expansion_ratio=expansion_ratio,
-                chamber_length_mm=chamber_length_mm,
-                wall_thickness_mm=wall_thickness_mm,
-                n_cooling_channels=n_channels,
+            parameters = {
+                "nozzle_type": "bell",
+                "throat_radius_mm": throat_radius_mm,
+                "chamber_radius_mm": chamber_radius_mm,
+                "expansion_ratio": expansion_ratio,
+                "chamber_length_mm": chamber_length_mm,
+                "wall_thickness_mm": wall_thickness_mm,
+                "n_cooling_channels": n_channels,
+            }
+            nozzle_geo = geometry_backend.build_rocket_nozzle(
+                lambda: RocketNozzleGeometry().bell_nozzle(**{key: value for key, value in parameters.items() if key != "nozzle_type"}),
+                **parameters,
             )
         else:
-            nozzle_geo = RocketNozzleGeometry().aerospike_nozzle(
-                throat_radius_mm=throat_radius_mm,
-                expansion_ratio=expansion_ratio,
-                length_mm=chamber_length_mm * 1.7,
-                wall_thickness_mm=wall_thickness_mm,
+            parameters = {
+                "nozzle_type": "aerospike",
+                "throat_radius_mm": throat_radius_mm,
+                "expansion_ratio": expansion_ratio,
+                "length_mm": chamber_length_mm * 1.7,
+                "wall_thickness_mm": wall_thickness_mm,
+            }
+            nozzle_geo = geometry_backend.build_rocket_nozzle(
+                lambda: RocketNozzleGeometry().aerospike_nozzle(**{key: value for key, value in parameters.items() if key != "nozzle_type"}),
+                **parameters,
             )
 
         self._check_envelope_constraints(spec, nozzle_geo.solid)
@@ -100,6 +113,13 @@ class NovaRP:
         )
         feed_pressure_budget = self._feed_pressure_budget(spec, cooling)
         combustion_gas_speed_of_sound_m_s = self._combustion_speed_of_sound_m_s(combustion)
+        aerospace_analysis = self._aerospace_analysis(
+            spec=spec,
+            combustion=combustion,
+            nozzle_metadata=nozzle_geo.metadata,
+            cooling=cooling,
+            combustion_gas_speed_of_sound_m_s=combustion_gas_speed_of_sound_m_s,
+        )
         material = get_material_properties(spec.material)
         if cooling.max_wall_temperature_K > material["max_service_temp_K"]:
             raise PhysicsViolationError(
@@ -147,6 +167,8 @@ class NovaRP:
                 "cooling_channel_wall_mm": nozzle_geo.channels.wall_thickness_mm,
                 "cooling_channel_pressure_drop_bar": cooling.pressure_drop_bar,
                 "feed_pressure_budget": feed_pressure_budget,
+                "geometry_backend": geometry_backend.status.active_backend,
+                "geometry_backend_requested": geometry_backend.status.requested_backend,
                 "propellant_manifold": manifold_metadata,
                 "manifold_wall_thickness_mm": float(
                     manifold_metadata.get(
@@ -166,6 +188,7 @@ class NovaRP:
                     float(manifold_metadata.get("min_wall_thickness_mm", wall_thickness_mm)),
                     float(final_geometry.metadata.get("min_wall_thickness_mm", wall_thickness_mm)),
                 ),
+                "aerospace_analysis": aerospace_analysis,
             }
         )
         validation = ManufacturingValidator().validate(final_geometry)
@@ -200,6 +223,8 @@ class NovaRP:
                 "injector": injector.metadata,
                 "manifold": manifold_metadata,
                 "feed_pressure_budget": feed_pressure_budget,
+                "geometry_backend": geometry_backend.status.active_backend,
+                "aerospace_analysis": aerospace_analysis,
             },
             validation=validation,
         )
@@ -325,6 +350,13 @@ class NovaRP:
         )
         feed_pressure_budget = self._feed_pressure_budget(spec, cooling)
         combustion_gas_speed_of_sound_m_s = self._combustion_speed_of_sound_m_s(combustion)
+        aerospace_analysis = self._aerospace_analysis(
+            spec=spec,
+            combustion=combustion,
+            nozzle_metadata=metadata,
+            cooling=cooling,
+            combustion_gas_speed_of_sound_m_s=combustion_gas_speed_of_sound_m_s,
+        )
         material = get_material_properties(spec.material)
         if cooling.max_wall_temperature_K > material["max_service_temp_K"]:
             raise PhysicsViolationError(
@@ -391,6 +423,8 @@ class NovaRP:
                 "nozzle": metadata,
                 "geometry_enabled": False,
                 "feed_pressure_budget": feed_pressure_budget,
+                "geometry_backend": PicoGKBridge().status.active_backend,
+                "aerospace_analysis": aerospace_analysis,
             },
             validation=validation,
         )
@@ -436,11 +470,16 @@ class NovaRP:
             "total_length_mm": total_length,
             "min_wall_thickness_mm": wall_thickness_mm,
             "min_channel_diameter_mm": min(channel_width, channel_depth_mm),
+            "channel_width_mm": channel_width,
+            "channel_depth_mm": channel_depth_mm,
             "outer_jacket_mm": outer_jacket_mm,
             "n_cooling_channels": n_channels,
             "channel_pitch_mm": max(1.0, (2.0 * math.pi * (chamber_radius_mm + wall_thickness_mm)) / max(n_channels, 1)),
             "helix_pitch_mm": helix_pitch,
             "channel_cut_diameter_mm": min(channel_width, channel_depth_mm),
+            "injector_flange_outer_radius_mm": chamber_radius_mm + wall_thickness_mm + outer_jacket_mm + 10.0,
+            "injector_bolt_circle_diameter_mm": 2.0 * max(chamber_radius_mm + wall_thickness_mm + outer_jacket_mm + 6.0, 1.0),
+            "injector_bolt_hole_count": max(6, int(math.ceil(2.0 * math.pi * (chamber_radius_mm + wall_thickness_mm + outer_jacket_mm + 10.0) / 26.0))),
         }
         channels = ChannelGeometry(
             hydraulic_diameter_mm=2.0 * channel_width * channel_depth_mm / (channel_width + channel_depth_mm),
@@ -493,6 +532,40 @@ class NovaRP:
         chamber_temp_K = float(getattr(combustion, "T_c", 3200.0) or 3200.0)
         gas_constant_J_kgK = 8314.46261815324 / max(molecular_weight_g_mol, 1.0e-6)
         return math.sqrt(max(gamma * gas_constant_J_kgK * chamber_temp_K, 0.0))
+
+    def _aerospace_analysis(
+        self,
+        *,
+        spec: RocketEngineSpec,
+        combustion: object,
+        nozzle_metadata: dict,
+        cooling: object,
+        combustion_gas_speed_of_sound_m_s: float,
+    ) -> dict[str, object]:
+        chamber_length_mm = float(nozzle_metadata.get("chamber_length_mm", 35.0))
+        chamber_radius_mm = float(nozzle_metadata.get("chamber_radius_mm", 25.0))
+        stability = analyze_combustion_stability(
+            chamber_length_mm=chamber_length_mm,
+            chamber_radius_mm=chamber_radius_mm,
+            speed_of_sound_m_s=combustion_gas_speed_of_sound_m_s,
+        )
+        fatigue = estimate_thermal_fatigue_life(
+            material=spec.material,
+            peak_wall_temperature_K=float(getattr(cooling, "max_wall_temperature_K", 650.0)),
+            coolant_temperature_K=float(getattr(cooling, "coolant_outlet_temperature_K", 293.15)),
+        )
+        ignition = size_ignition_system(
+            chamber_pressure_bar=spec.chamber_pressure_bar,
+            chamber_length_mm=chamber_length_mm,
+            chamber_radius_mm=chamber_radius_mm,
+            propellant=spec.propellant,
+            thrust_N=spec.thrust_N,
+        )
+        return {
+            "combustion_stability": stability,
+            "thermal_fatigue": fatigue,
+            "ignition": ignition,
+        }
 
     def _feed_pressure_budget(self, spec: RocketEngineSpec, cooling: object) -> dict[str, float]:
         chamber_pressure_bar = float(spec.chamber_pressure_bar)

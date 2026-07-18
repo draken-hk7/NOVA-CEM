@@ -9,6 +9,7 @@ from warnings import warn
 
 import numpy as np
 
+from nova.core.analysis.combustion_stability import analyze_combustion_stability
 from nova.core.geometry_engine.primitives import MeshSolid
 from nova.core.knowledge_engine.rules import get_material_properties
 
@@ -185,6 +186,7 @@ class ManufacturingValidator:
     def combustion_stability_check(self, solid: MeshSolid) -> CheckResult:
         metadata = solid.metadata
         chamber_length_mm = _first_float(metadata, "chamber_length_mm")
+        chamber_radius_mm = _first_float(metadata, "chamber_radius_mm")
         speed_of_sound_m_s = _first_float(
             metadata,
             "combustion_gas_speed_of_sound_m_s",
@@ -208,18 +210,33 @@ class ManufacturingValidator:
                     "speed-of-sound metadata is missing."
                 ),
             )
-
         acoustic_frequency_hz = speed_of_sound_m_s / (2.0 * chamber_length_mm / 1000.0)
         in_problem_band = COMBUSTION_RESONANCE_MIN_HZ <= acoustic_frequency_hz <= COMBUSTION_RESONANCE_MAX_HZ
+        stability_risk = False
+        coupling_note = ""
+        if chamber_radius_mm is not None and chamber_radius_mm > 0.0:
+            analysis = analyze_combustion_stability(
+                chamber_length_mm=chamber_length_mm,
+                chamber_radius_mm=chamber_radius_mm,
+                speed_of_sound_m_s=speed_of_sound_m_s,
+            )
+            risky_modes = [mode for mode in analysis.modes if mode.within_coupling_band and not mode.is_reference]
+            stability_risk = analysis.stability_risk
+            if risky_modes:
+                coupling_note = " Coupled mode risk: " + ", ".join(
+                    f"{mode.family} {mode.order} at {mode.frequency_hz:.0f} Hz" for mode in risky_modes
+                ) + "."
+        passed = not in_problem_band and not stability_risk
         return CheckResult(
             name="Combustion stability acoustic mode",
-            passed=not in_problem_band,
+            passed=passed,
             actual_value=acoustic_frequency_hz,
             minimum_value=COMBUSTION_RESONANCE_MAX_HZ,
             message=(
                 f"First longitudinal chamber acoustic mode is {acoustic_frequency_hz:.0f} Hz; "
                 f"NOVA warns inside the {COMBUSTION_RESONANCE_MIN_HZ:.0f}-"
                 f"{COMBUSTION_RESONANCE_MAX_HZ:.0f} Hz small-engine resonance band."
+                f"{coupling_note}"
             ),
         )
 

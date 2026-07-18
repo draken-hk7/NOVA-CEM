@@ -364,6 +364,14 @@
                   </div>
                 </label>
 
+                <label>
+                  <span>Planned Launches per Month</span>
+                  <div class="unit-input">
+                    <input id="mission_launches_per_month" name="planned_launches_per_month" type="number" min="0.001" step="any" value="1" required>
+                    <span>launches</span>
+                  </div>
+                </label>
+
                 <button id="mission-button" type="submit">Calculate Mission</button>
                 <p id="mission-error" class="error" hidden></p>
               </form>
@@ -398,6 +406,21 @@
                     <span class="metric-label">H2 Flow</span>
                     <strong>--</strong>
                     <span class="metric-unit">kg/s</span>
+                  </article>
+                  <article class="metric-card empty">
+                    <span class="metric-label">Burnout Altitude</span>
+                    <strong>--</strong>
+                    <span class="metric-unit">m</span>
+                  </article>
+                  <article class="metric-card empty">
+                    <span class="metric-label">Coast Gain</span>
+                    <strong>--</strong>
+                    <span class="metric-unit">m</span>
+                  </article>
+                  <article class="metric-card empty">
+                    <span class="metric-label">Solar H2 Energy</span>
+                    <strong>--</strong>
+                    <span class="metric-unit">kWh/day</span>
                   </article>
                 </div>
 

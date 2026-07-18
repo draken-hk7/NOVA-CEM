@@ -190,7 +190,10 @@ const modules = {
       ["burn_time_s", "Burn Time", "s"],
       ["thrust_to_weight", "T/W", "ratio"],
       ["max_altitude_m", "Max Altitude", "m"],
-      ["hydrogen_mass_needed_kg_s", "H2 Flow", "kg/s"]
+      ["hydrogen_mass_needed_kg_s", "H2 Flow", "kg/s"],
+      ["burnout_altitude_m", "Burnout Altitude", "m"],
+      ["coast_altitude_m", "Coast Gain", "m"],
+      ["solar_energy_kwh_per_day", "Solar H2 Energy", "kWh/day"]
     ]
   }
 };
@@ -1240,6 +1243,7 @@ function renderResults(job) {
   downloadButtonsEl.innerHTML = artifactLinks(job, {
     stl: "Download STL",
     step: "Download STEP",
+    engineering_drawing: "Download Drawing",
     thermal_map: "Download Thermal Map",
     report: "Download PDF"
   }) || "No artifacts available";
@@ -1266,6 +1270,7 @@ function renderMissionResults(job) {
   renderMetricCards(missionResultCardsEl, "mission", job.metrics || {});
   missionDownloadButtonsEl.classList.remove("muted");
   missionDownloadButtonsEl.innerHTML = artifactLinks(job, {
+    trajectory: "Download Trajectory",
     report: "Download PDF"
   }) || "No mission report available";
 }
@@ -1340,7 +1345,7 @@ function renderHistory(jobs) {
         <td data-label="Size"><span class="history-size">${escapeHtml(formatBytes(job.size_bytes))}</span></td>
         <td data-label="Actions">
           <div class="history-actions">
-          ${artifactLinks(job, { stl: "STL", step: "STEP", thermal_map: "Thermal", report: "PDF" })}
+          ${artifactLinks(job, { stl: "STL", step: "STEP", engineering_drawing: "Drawing", thermal_map: "Thermal", trajectory: "Trajectory", report: "PDF" })}
           <button class="secondary star-action" type="button" data-job-id="${escapeHtml(job.job_id)}">${job.starred ? "Starred" : "Star"}</button>
           <button class="secondary danger-action" type="button" data-job-id="${escapeHtml(job.job_id)}" ${protectedDelete ? "disabled" : ""}>Delete</button>
           </div>
@@ -1717,7 +1722,8 @@ async function runMission(event) {
       body: JSON.stringify({
         engine_job_id: String(data.get("engine_job_id") || "").trim(),
         vehicle_mass_kg: Number(data.get("vehicle_mass_kg")),
-        propellant_mass_kg: Number(data.get("propellant_mass_kg"))
+        propellant_mass_kg: Number(data.get("propellant_mass_kg")),
+        planned_launches_per_month: Number(data.get("planned_launches_per_month"))
       })
     });
     const payload = await response.json();

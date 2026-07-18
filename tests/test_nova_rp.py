@@ -55,6 +55,12 @@ def test_nova_rp_design_returns_geometry_performance_and_trace():
     assert report.exists() and report.stat().st_size > 0
     assert thermal_map.exists() and thermal_map.stat().st_size > 0
     assert run.files["thermal_map"] == str(thermal_map)
+    drawing_pdf = artifact_dir / "engineering_drawing.pdf"
+    drawing_svg = artifact_dir / "engineering_drawing.svg"
+    assert drawing_pdf.exists() and drawing_pdf.stat().st_size > 0
+    assert drawing_svg.exists() and drawing_svg.stat().st_size > 0
+    assert run.files["engineering_drawing"] == str(drawing_pdf)
+    assert run.files["engineering_drawing_svg"] == str(drawing_svg)
     svg = thermal_map.read_text(encoding="utf-8")
     assert "<svg" in svg
     assert "CoolingChannelSolver.bartz_heat_flux" in svg
@@ -63,13 +69,17 @@ def test_nova_rp_design_returns_geometry_performance_and_trace():
     assert "Cooling outlet" in svg
     assert "Peak heat flux" in svg
     report_bytes = report.read_bytes()
-    assert b"Coolant Ports" in report_bytes
-    assert b"Propellant Manifold" in report_bytes
-    assert b"Structural Validation" in report_bytes
-    assert b"Tolerance Analysis" in report_bytes
-    assert b"Propellant Feed Pressure Budget" in report_bytes
-    assert b"Embedded Thermal Map" in report_bytes
-    assert b"/Count 2" in report_bytes
+    assert b"MANUFACTURING, PRESSURE BUDGET AND VALIDATION" in report_bytes
+    assert b"CRITICAL TOLERANCES" in report_bytes
+    assert b"ENGINEERING DRAWING" in report_bytes
+    assert b"THERMAL MAP" in report_bytes
+    assert b"AEROSPACE SCREENING ANALYSIS" in report_bytes
+    assert b"/Count 5" in report_bytes
+    drawing_svg_text = drawing_svg.read_text(encoding="utf-8")
+    assert "FRONT PROFILE" in drawing_svg_text
+    assert "SECTION A-A" in drawing_svg_text
+    assert "TOP PLAN VIEW" in drawing_svg_text
+    assert "M8x1.25" in drawing_svg_text
 
 
 def test_nova_rp_cooling_channel_defaults_and_preview_override():
@@ -123,8 +133,8 @@ def test_nova_rp_physics_only_mode_keeps_report_without_cad_artifacts(monkeypatc
     stability_check = next(check for check in result.validation.checks if check.name == "Combustion stability acoustic mode")
     assert not result.validation.passed
     assert not stability_check.passed
-    assert set(files) == {"thermal_map", "report", "json"}
-    assert set(urls) == {"thermal_map", "report"}
+    assert set(files) == {"thermal_map", "engineering_drawing", "engineering_drawing_svg", "report", "json"}
+    assert set(urls) == {"thermal_map", "engineering_drawing", "report"}
     assert (artifact_dir / "report.pdf").exists()
     assert (artifact_dir / "thermal_map.svg").exists()
 

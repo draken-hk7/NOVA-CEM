@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 from nova.core.input_schema import ActuatorSpec, HeatExchangerSpec, RocketEngineSpec
 from nova.core.mission import calculate_mission, mission_report_text
-from nova.core.output import GeometryExporter, PerformanceReporter
+from nova.core.output import GeometryExporter, PerformanceReporter, generate_trajectory_svg
 from nova.core.types import CEMRunResult, to_jsonable
 from nova.modules.nova_ea import NovaEA
 from nova.modules.nova_hx import NovaHX
@@ -65,6 +65,7 @@ class DashboardMissionRequest(BaseModel):
     engine_job_id: str = Field(..., min_length=1)
     vehicle_mass_kg: float = Field(..., gt=0.0)
     propellant_mass_kg: float = Field(..., gt=0.0)
+    planned_launches_per_month: float = Field(1.0, gt=0.0)
 
 
 class StarJobRequest(BaseModel):
@@ -193,6 +194,7 @@ async def run_mission(request: DashboardMissionRequest) -> dict:
             vehicle_mass_kg=request.vehicle_mass_kg,
             propellant_mass_kg=request.propellant_mass_kg,
             engine_job_id=request.engine_job_id,
+            planned_launches_per_month=request.planned_launches_per_month,
         )
         job_id = _unique_job_id(
             "mission",
@@ -208,6 +210,7 @@ async def run_mission(request: DashboardMissionRequest) -> dict:
                 "engine_job_id": request.engine_job_id,
                 "vehicle_mass_kg": request.vehicle_mass_kg,
                 "propellant_mass_kg": request.propellant_mass_kg,
+                "planned_launches_per_month": request.planned_launches_per_month,
             },
             metrics=_mission_metrics(result),
             validation={"passed": True, "checks": []},
@@ -269,7 +272,7 @@ async def delete_job(job_id: str) -> dict:
 
 
 @app.get("/download/{job_id}/{artifact}")
-async def download_artifact(job_id: str, artifact: Literal["stl", "step", "report", "thermal_map"]) -> FileResponse:
+async def download_artifact(job_id: str, artifact: Literal["stl", "step", "report", "thermal_map", "engineering_drawing", "trajectory"]) -> FileResponse:
     record = _find_job(job_id)
     path = _artifact_path(record, artifact)
     media_types = {
@@ -277,6 +280,8 @@ async def download_artifact(job_id: str, artifact: Literal["stl", "step", "repor
         "step": "application/step",
         "report": "application/pdf",
         "thermal_map": "image/svg+xml",
+        "engineering_drawing": "application/pdf",
+        "trajectory": "image/svg+xml",
     }
     return FileResponse(path, media_type=media_types[artifact], filename=path.name)
 
@@ -319,9 +324,11 @@ def _export_mission_artifacts(
     job_dir: Path,
 ) -> dict[str, str]:
     report = job_dir / "mission_report.pdf"
+    trajectory = job_dir / "trajectory.svg"
     data = job_dir / "data.json"
-    files = {"report": str(report), "json": str(data)}
+    files = {"report": str(report), "trajectory": str(trajectory), "json": str(data)}
     PerformanceReporter()._write_minimal_pdf(str(report), mission_report_text(result))
+    generate_trajectory_svg(result, trajectory)
     data.write_text(
         json.dumps(
             {
@@ -400,6 +407,9 @@ def _mission_metrics(result: object) -> dict[str, float]:
         "thrust_to_weight": round(float(result.thrust_to_weight), 3),
         "max_altitude_m": round(float(result.max_altitude_m), 2),
         "hydrogen_mass_needed_kg_s": round(float(result.hydrogen_mass_needed_kg_s), 6),
+        "burnout_altitude_m": round(float(result.burnout_altitude_m), 2),
+        "coast_altitude_m": round(float(result.coast_altitude_m), 2),
+        "solar_energy_kwh_per_day": round(float(result.solar_energy_kwh_per_day), 3),
     }
 
 
@@ -411,6 +421,10 @@ def _download_urls(job_id: str, files: dict[str, str]) -> dict[str, str]:
         urls["step"] = f"/download/{job_id}/step"
     if "thermal_map" in files:
         urls["thermal_map"] = f"/download/{job_id}/thermal_map"
+    if "engineering_drawing" in files:
+        urls["engineering_drawing"] = f"/download/{job_id}/engineering_drawing"
+    if "trajectory" in files:
+        urls["trajectory"] = f"/download/{job_id}/trajectory"
     return urls
 
 

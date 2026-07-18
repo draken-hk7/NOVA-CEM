@@ -14,7 +14,7 @@ from typing import NamedTuple
 
 from nova.core.input_schema import ActuatorSpec, HeatExchangerSpec, HotFireTestResult, RocketEngineSpec
 from nova.core.mission import calculate_mission, mission_report_text
-from nova.core.output import GeometryExporter, PerformanceReporter
+from nova.core.output import GeometryExporter, PerformanceReporter, generate_trajectory_svg
 from nova.core.types import CEMRunResult, ProcessParams, to_jsonable
 from nova.feedback import FeedbackIngester
 from nova.modules.nova_ea import NovaEA
@@ -127,6 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
     mission.add_argument("--engine", required=True, help="Rocket engine job id or output folder.")
     mission.add_argument("--vehicle-mass", type=float, required=True, help="Dry vehicle mass in kg.")
     mission.add_argument("--propellant-mass", type=float, required=True, help="Propellant mass in kg.")
+    mission.add_argument("--launches-per-month", type=float, default=1.0, help="Planned launches per month for hydrogen-production planning.")
     mission.add_argument("--output-dir", default="outputs/cli", help="Base directory for mission reports.")
 
     feedback = sub.add_parser("feedback")
@@ -371,6 +372,7 @@ def _mission(args: argparse.Namespace) -> int:
         vehicle_mass_kg=args.vehicle_mass,
         propellant_mass_kg=args.propellant_mass,
         engine_job_id=engine_dir.name,
+        planned_launches_per_month=args.launches_per_month,
     )
     stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
     output_name = f"mission_{_slug(engine_dir.name)}_{stamp}"
@@ -378,8 +380,10 @@ def _mission(args: argparse.Namespace) -> int:
     output_dir.mkdir(parents=True, exist_ok=False)
     report = output_dir / "mission_report.pdf"
     data = output_dir / "data.json"
-    files = {"report": str(report), "json": str(data)}
+    trajectory = output_dir / "trajectory.svg"
+    files = {"report": str(report), "trajectory": str(trajectory), "json": str(data)}
     PerformanceReporter()._write_minimal_pdf(str(report), mission_report_text(result))
+    generate_trajectory_svg(result, trajectory)
     data.write_text(
         json.dumps(
             {
@@ -390,6 +394,7 @@ def _mission(args: argparse.Namespace) -> int:
                     "engine_job_id": engine_dir.name,
                     "vehicle_mass_kg": args.vehicle_mass,
                     "propellant_mass_kg": args.propellant_mass,
+                    "planned_launches_per_month": args.launches_per_month,
                 },
                 "mission": to_jsonable(result),
                 "files": files,
@@ -410,6 +415,9 @@ def _mission(args: argparse.Namespace) -> int:
                 "thrust_to_weight": result.thrust_to_weight,
                 "max_altitude_m": result.max_altitude_m,
                 "hydrogen_mass_needed_kg_s": result.hydrogen_mass_needed_kg_s,
+                "burnout_altitude_m": result.burnout_altitude_m,
+                "coast_altitude_m": result.coast_altitude_m,
+                "solar_energy_kwh_per_day": result.solar_energy_kwh_per_day,
             }
         )
     )

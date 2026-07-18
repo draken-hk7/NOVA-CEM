@@ -10,6 +10,7 @@ from typing import Any
 
 from nova.core.geometry_engine.primitives import MeshSolid
 from nova.core.manufacturing import validate_for_stl_export
+from nova.core.output.technical_drawing import TechnicalDrawingData, TechnicalDrawingGenerator, write_vector_pdf, write_vector_pdf_pages
 from nova.core.output.thermal_map import ThermalMapData, ThermalMapGenerator
 from nova.core.types import CEMRunResult, to_jsonable
 
@@ -402,7 +403,17 @@ class PerformanceReporter:
     def generate_pdf_report(self, run_result: CEMRunResult, path: str) -> None:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         thermal_map_data = self._generate_thermal_map(run_result, path)
+        technical_drawing_data = self._generate_technical_drawing(run_result, path)
         payload = self.generate_json_data(run_result)
+        if run_result.module == "rocket-engine":
+            self._write_professional_rocket_report(
+                path,
+                run_result=run_result,
+                payload=payload,
+                thermal_map_data=thermal_map_data,
+                technical_drawing_data=technical_drawing_data,
+            )
+            return
         lines = [
             "NOVA Computational Engineering Model Report",
             f"Job ID: {run_result.job_id}",
@@ -496,6 +507,45 @@ class PerformanceReporter:
         if data is not None:
             run_result.files["thermal_map"] = str(thermal_path)
         return data
+
+    def _generate_technical_drawing(self, run_result: CEMRunResult, report_path: str) -> TechnicalDrawingData | None:
+        if run_result.module != "rocket-engine":
+            return None
+        generator = TechnicalDrawingGenerator()
+        data = generator.from_run_result(run_result)
+        if data is None:
+            return None
+        drawing_svg = Path(report_path).with_name("engineering_drawing.svg")
+        drawing_pdf = Path(report_path).with_name("engineering_drawing.pdf")
+        drawing_svg.write_text(generator.to_svg(data), encoding="utf-8")
+        write_vector_pdf(
+            drawing_pdf,
+            generator.pdf_commands(data, scale=72.0 / 25.4),
+            media_box=(594.0 * 72.0 / 25.4, 420.0 * 72.0 / 25.4),
+        )
+        run_result.files["engineering_drawing"] = str(drawing_pdf)
+        run_result.files["engineering_drawing_svg"] = str(drawing_svg)
+        return data
+
+    def _write_professional_rocket_report(
+        self,
+        path: str,
+        *,
+        run_result: CEMRunResult,
+        payload: dict,
+        thermal_map_data: ThermalMapData | None,
+        technical_drawing_data: TechnicalDrawingData | None,
+    ) -> None:
+        metadata = _rocket_metadata(payload)
+        analysis = _mapping(metadata.get("aerospace_analysis"))
+        pages = [
+            _report_cover_page(run_result, payload),
+            _report_manufacturing_page(payload, metadata),
+            _report_drawing_page(technical_drawing_data),
+            _report_thermal_page(thermal_map_data),
+            _report_analysis_page(analysis, metadata),
+        ]
+        write_vector_pdf_pages(path, pages)
 
     def _write_minimal_pdf(self, path: str, text: str, thermal_map_data: ThermalMapData | None = None) -> None:
         escaped = text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
@@ -612,3 +662,229 @@ def _pdf_marker(
 def _hex_to_rgb(value: str) -> tuple[float, float, float]:
     value = value.lstrip("#")
     return tuple(int(value[index : index + 2], 16) / 255.0 for index in (0, 2, 4))
+
+
+def _report_cover_page(run_result: CEMRunResult, payload: dict) -> list[str]:
+    performance = _mapping(_mapping(payload.get("design")).get("performance"))
+    inputs = _mapping(payload.get("inputs"))
+    metadata = _rocket_metadata(payload)
+    nozzle = _mapping(metadata.get("nozzle"))
+    return [
+        *_report_header("NOVA-CEM ROCKET ENGINE DESIGN REPORT", "01 / 05", "EXECUTIVE DESIGN SUMMARY"),
+        _report_text(48, 665, 16, f"{run_result.job_id}", bold=True),
+        _report_text(48, 642, 9, "Traceable preliminary aerospace engineering output. Qualification and acceptance testing remain required before operational use."),
+        *_report_table(
+            48,
+            560,
+            "PERFORMANCE",
+            [
+                ("Specific impulse", _unit(performance.get("specific_impulse_s"), "s")),
+                ("Thrust", _unit(performance.get("thrust_N"), "N")),
+                ("Chamber temperature", _unit(performance.get("chamber_temp_K"), "K")),
+                ("Chamber pressure", _unit(performance.get("chamber_pressure_bar"), "bar")),
+                ("Mass flow", _unit(performance.get("mass_flow_rate_kg_s"), "kg/s")),
+            ],
+            accent=(0.10, 0.49, 0.41),
+        ),
+        *_report_table(
+            330,
+            560,
+            "DESIGN INPUTS",
+            [
+                ("Propellant", _text_value(inputs.get("propellant"))),
+                ("Material", _text_value(inputs.get("material"))),
+                ("Cooling", _text_value(inputs.get("cooling"))),
+                ("Process", _text_value(inputs.get("manufacturing_process"))),
+                ("Geometry backend", _text_value(metadata.get("geometry_backend", "cadquery"))),
+            ],
+            accent=(0.13, 0.33, 0.60),
+        ),
+        *_report_table(
+            48,
+            350,
+            "MANUFACTURING SUMMARY",
+            [
+                ("Estimated engine mass", _unit(_mapping(payload.get("design")).get("mass_kg"), "kg")),
+                ("Estimated print time", _unit(_mapping(_mapping(payload.get("design")).get("manufacturing")).get("estimated_print_time_hours"), "h")),
+                ("Wall thickness", _unit(nozzle.get("min_wall_thickness_mm", metadata.get("chamber_wall_thickness_mm")), "mm")),
+                ("Cooling wall", _unit(nozzle.get("cooling_channel_wall_mm", metadata.get("cooling_channel_wall_mm", nozzle.get("min_wall_thickness_mm"))), "mm")),
+                ("Report pages", "5 vector pages"),
+            ],
+            accent=(0.69, 0.28, 0.19),
+        ),
+        _report_text(48, 168, 11, "Report sequence", bold=True),
+        _report_text(48, 146, 9, "01 Summary | 02 Validation | 03 Engineering Drawing | 04 Thermal Map | 05 Aerospace Screening"),
+        _report_text(48, 112, 8, "Document control: NOVA-CEM v1.0 | traceable to job metadata | dimensions in millimetres unless noted."),
+        *_report_footer("NOVA-CEM v1.0 | Preliminary engineering only"),
+    ]
+
+
+def _report_manufacturing_page(payload: dict, metadata: dict) -> list[str]:
+    design = _mapping(payload.get("design"))
+    validation = _mapping(design.get("validation"))
+    feed = _mapping(metadata.get("feed_pressure_budget"))
+    nozzle = _mapping(metadata.get("nozzle"))
+    manifold = _mapping(metadata.get("manifold"))
+    tolerance_rows = [
+        ("Throat diameter", "+/-0.05 mm"),
+        ("Cooling channel width", "+/-0.10 mm"),
+        ("Wall thickness", "+/-0.05 mm"),
+        ("Flange bolt-hole position", "+/-0.10 mm"),
+        ("Coolant port thread", "M8x1.25"),
+    ]
+    pressure_rows = [
+        ("Chamber pressure", _unit(feed.get("chamber_pressure_bar"), "bar")),
+        ("Injector drop (20%)", _unit(feed.get("injector_drop_bar"), "bar")),
+        ("Cooling channel drop", _unit(feed.get("cooling_channel_drop_bar"), "bar")),
+        ("Line losses (5%)", _unit(feed.get("line_losses_bar"), "bar")),
+        ("Required tank pressure", _unit(feed.get("required_tank_pressure_bar"), "bar")),
+    ]
+    validation_rows = [
+        (str(item.get("name", "check")), "PASS" if item.get("passed") else "WARNING")
+        for item in validation.get("checks", [])
+        if isinstance(item, dict)
+    ] or [("Structural validation", "No validation data")]
+    coolant_ports = _mapping(nozzle.get("coolant_ports"))
+    port_rows = []
+    for name, port in coolant_ports.items():
+        if isinstance(port, dict):
+            port_rows.append((f"Coolant {name}", f"DIA {_number(port.get('diameter_mm')):.1f} mm | {port.get('thread_spec', 'M8x1.25')}"))
+    if manifold:
+        port_rows.append(("Oxidizer manifold", f"DIA {_number(_mapping(manifold.get('oxidizer_manifold')).get('diameter_mm')):.1f} mm"))
+        port_rows.append(("Fuel manifold", f"DIA {_number(_mapping(manifold.get('fuel_manifold')).get('diameter_mm')):.1f} mm"))
+    return [
+        *_report_header("MANUFACTURING, PRESSURE BUDGET AND VALIDATION", "02 / 05", "CONTROLLED DESIGN REQUIREMENTS"),
+        *_report_table(48, 635, "CRITICAL TOLERANCES", tolerance_rows, accent=(0.69, 0.28, 0.19)),
+        *_report_table(330, 635, "PRESSURE-FED PROPULSION BUDGET", pressure_rows, accent=(0.13, 0.33, 0.60)),
+        *_report_table(48, 380, "VALIDATION RESULTS", validation_rows[:6], accent=(0.10, 0.49, 0.41)),
+        *_report_table(330, 380, "INTERFACES", port_rows[:6] or [("Interfaces", "No port metadata")], accent=(0.42, 0.32, 0.60)),
+        _report_text(48, 135, 8, "Manufacturing note: tolerance values are design targets. Production release requires process capability, inspection, proof and leak testing."),
+        *_report_footer("NOVA-CEM v1.0 | Manufacturing and validation"),
+    ]
+
+
+def _report_drawing_page(data: TechnicalDrawingData | None) -> list[str]:
+    commands = [*_report_header("ENGINEERING DRAWING", "03 / 05", "A2 ISO 128 DRAWING REDUCED FOR REPORT"), _report_text(48, 690, 9, "Standalone A2 drawing is included as engineering_drawing.pdf and engineering_drawing.svg in this job output.")]
+    if data is None:
+        commands.append(_report_text(48, 640, 12, "Engineering drawing data was not available for this geometry mode.", bold=True))
+    else:
+        commands.extend(TechnicalDrawingGenerator().pdf_commands(data, scale=0.95, offset=(15.0, 118.0)))
+    commands.extend(_report_footer("NOVA-CEM v1.0 | Engineering drawing"))
+    return commands
+
+
+def _report_thermal_page(data: ThermalMapData | None) -> list[str]:
+    commands = [*_report_header("THERMAL MAP", "04 / 05", "BARTZ HEAT-FLUX SCREENING"), _report_text(42, 690, 9, "Wall temperature distribution with throat, peak heat flux and coolant-interface markers.")]
+    if data is None:
+        commands.append(_report_text(48, 640, 12, "Thermal map data was not available.", bold=True))
+    else:
+        commands.extend(_thermal_map_pdf_commands(data)[2:])
+    commands.extend(_report_footer("NOVA-CEM v1.0 | Thermal screening"))
+    return commands
+
+
+def _report_analysis_page(analysis: dict, metadata: dict) -> list[str]:
+    stability = _mapping(analysis.get("combustion_stability"))
+    fatigue = _mapping(analysis.get("thermal_fatigue"))
+    ignition = _mapping(analysis.get("ignition"))
+    mode_rows = []
+    for mode in stability.get("modes", []):
+        if isinstance(mode, dict):
+            status = "RISK" if mode.get("within_coupling_band") and not mode.get("is_reference") else "REFERENCE" if mode.get("is_reference") else "CLEAR"
+            mode_rows.append((f"{mode.get('family', 'mode')} {mode.get('order', '')}", f"{_number(mode.get('frequency_hz')):.0f} Hz | {status}"))
+    if not mode_rows:
+        mode_rows = [("Acoustic modes", "No analysis data")]
+    fatigue_rows = [
+        ("Temperature delta", _unit(fatigue.get("temperature_delta_K"), "K")),
+        ("Thermal stress", _unit(fatigue.get("thermal_stress_MPa"), "MPa")),
+        ("Estimated thermal cycles", _text_value(fatigue.get("estimated_cycles"))),
+        ("Recommended firings", _text_value(fatigue.get("recommended_firings"))),
+    ]
+    ignition_rows = [
+        ("Recommended igniter", _text_value(ignition.get("recommended_igniter"))),
+        ("Minimum spark energy", _unit(ignition.get("minimum_spark_energy_J"), "J")),
+        ("Design spark energy", _unit(ignition.get("design_spark_energy_J"), "J")),
+        ("Placement", f"Z {_number(ignition.get('placement_z_mm')):.1f} mm | {_number(ignition.get('placement_angle_deg')):.0f} deg"),
+    ]
+    risk_text = "STABILITY RISK DETECTED. Recommend baffled injector and acoustic validation." if stability.get("stability_risk") else "No coupled acoustic mode is within the +/-10% screening band."
+    return [
+        *_report_header("AEROSPACE SCREENING ANALYSIS", "05 / 05", "COMBUSTION STABILITY, FATIGUE AND IGNITION"),
+        _report_text(48, 675, 11, risk_text, bold=True),
+        _report_text(48, 652, 8, _text_value(stability.get("recommendation"))),
+        *_report_table(48, 595, "COMBUSTION ACOUSTIC MODES", mode_rows[:5], accent=(0.69, 0.28, 0.19) if stability.get("stability_risk") else (0.10, 0.49, 0.41)),
+        *_report_table(330, 595, "THERMAL FATIGUE SCREEN", fatigue_rows, accent=(0.42, 0.32, 0.60)),
+        *_report_table(48, 350, "IGNITION SYSTEM SIZING", ignition_rows, accent=(0.13, 0.33, 0.60)),
+        _report_text(48, 150, 8, "Thermal-fatigue screening only. Establish life with material coupons and duty-cycle testing."),
+        _report_text(48, 132, 8, "Install upstream of the throat with local protection; verify ignition transient margins during hot-fire."),
+        _report_text(48, 108, 8, "Screening only; validate using qualified materials, combustion dynamics and hot-fire data."),
+        *_report_footer("NOVA-CEM v1.0 | Aerospace screening analysis"),
+    ]
+
+
+def _report_header(title: str, page_number: str, subtitle: str) -> list[str]:
+    return [
+        "0.06 0.10 0.13 rg 0 730 612 62 re f",
+        "0.10 0.49 0.41 rg 0 726 612 4 re f",
+        _report_text(42, 766, 18, title, bold=True, color=(1.0, 1.0, 1.0)),
+        _report_text(42, 745, 8, subtitle, color=(0.78, 0.87, 0.84)),
+        _report_text(544, 746, 8, page_number, color=(1.0, 1.0, 1.0)),
+    ]
+
+
+def _report_footer(text: str) -> list[str]:
+    return [
+        "0.84 0.88 0.89 RG 0.5 w 42 42 m 570 42 l S",
+        _report_text(42, 25, 7.5, text, color=(0.30, 0.36, 0.40)),
+    ]
+
+
+def _report_table(x: float, y: float, title: str, rows: list[tuple[str, str]], *, accent: tuple[float, float, float]) -> list[str]:
+    row_height = 25.0
+    height = 28.0 + row_height * len(rows)
+    commands = [
+        f"{accent[0]:.3f} {accent[1]:.3f} {accent[2]:.3f} rg {x:.2f} {y - 28:.2f} 234 28 re f",
+        _report_text(x + 11, y - 18, 9, title, bold=True, color=(1.0, 1.0, 1.0)),
+        "0.84 0.88 0.89 RG 0.60 w " + f"{x:.2f} {y - height:.2f} 234 {height:.2f} re S",
+    ]
+    for index, (label, value) in enumerate(rows):
+        row_top = y - 28 - index * row_height
+        if index % 2 == 0:
+            commands.append(f"0.96 0.97 0.98 rg {x + 0.6:.2f} {row_top - row_height + 0.6:.2f} 232.8 {row_height - 1.2:.2f} re f")
+        commands.append(f"0.86 0.89 0.90 RG 0.30 w {x:.2f} {row_top - row_height:.2f} m {x + 234:.2f} {row_top - row_height:.2f} l S")
+        commands.append(_report_text(x + 10, row_top - 16, 8.3, _ellipsize(label, 25), bold=True))
+        commands.append(_report_text(x + 120, row_top - 16, 8.3, _ellipsize(value, 22)))
+    return commands
+
+
+def _report_text(x: float, y: float, size: float, value: str, *, bold: bool = False, color: tuple[float, float, float] = (0.09, 0.13, 0.16)) -> str:
+    font = "F2" if bold else "F1"
+    safe = str(value).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+    return f"{color[0]:.3f} {color[1]:.3f} {color[2]:.3f} rg BT /{font} {size:.2f} Tf {x:.2f} {y:.2f} Td ({safe}) Tj ET"
+
+
+def _mapping(value: Any) -> dict:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _number(value: Any, default: float = 0.0) -> float:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return default
+    return result if math.isfinite(result) else default
+
+
+def _unit(value: Any, unit: str) -> str:
+    number = _number(value)
+    return f"{number:.3f} {unit}" if unit else f"{number:.3f}"
+
+
+def _text_value(value: Any) -> str:
+    if value is None or value == "":
+        return "--"
+    return str(value)
+
+
+def _ellipsize(value: Any, maximum: int) -> str:
+    text = str(value)
+    return text if len(text) <= maximum else f"{text[: max(1, maximum - 3)]}..."

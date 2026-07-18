@@ -183,11 +183,12 @@ def test_mission_dashboard_endpoint_records_report_and_history(monkeypatch):
     report = Path(mission_record["artifact_paths"]["report"])
 
     assert job["module"] == "mission"
-    assert set(job["files"]) == {"report"}
+    assert set(job["files"]) == {"report", "trajectory"}
     assert job["metrics"]["delta_v_m_s"] == pytest.approx(round(450.0 * 9.81 * math.log(70.0 / 50.0), 2))
     assert job["metrics"]["hydrogen_mass_needed_kg_s"] == pytest.approx(round(1.2 / 6.5, 6))
     assert report.name == "mission_report.pdf"
     assert report.exists() and b"NOVA Mission Report" in report.read_bytes()
+    assert (Path(mission_record["artifact_paths"]["trajectory"])).exists()
     assert history[0]["module"] == "mission"
 
 
@@ -379,6 +380,8 @@ def test_dashboard_embeds_threejs_stl_viewer_assets():
     assert "artifactDownloadUrl(job, \"stl\")" in js
     assert 'data-artifact="${escapeHtml(key)}"' in js
     assert "thermal_map: \"Download Thermal Map\"" in js
+    assert "engineering_drawing: \"Download Drawing\"" in js
+    assert "trajectory: \"Download Trajectory\"" in js
     assert "STL fetch failed for ${stlUrl}" in js
     assert "Download STL to view in FreeCAD" in js
     assert 'globalName: "THREE.STLLoader"' in js
@@ -457,6 +460,7 @@ def test_dashboard_includes_sidebar_layout_mission_tab_and_metrics():
     assert 'id="actuator_response_time_ms" name="response_time_ms" type="number" min="0.1" step="any"' in html
     assert 'id="mission_vehicle_mass_kg" name="vehicle_mass_kg" type="number" min="0.001" step="any"' in html
     assert 'id="mission_propellant_mass_kg" name="propellant_mass_kg" type="number" min="0.001" step="any"' in html
+    assert 'id="mission_launches_per_month" name="planned_launches_per_month" type="number" min="0.001" step="any"' in html
     assert 'id="mission-result-cards"' in html
     assert '<option value="mission">Mission</option>' in html
     assert '<th>Name</th>' in html
@@ -478,6 +482,7 @@ def test_dashboard_includes_sidebar_layout_mission_tab_and_metrics():
     assert "kerolox|methalox|hydrolox" in js
     assert "delta_v_m_s" in js
     assert "hydrogen_mass_needed_kg_s" in js
+    assert "solar_energy_kwh_per_day" in js
     assert "renderMissionResults(payload.job)" in js
     assert ".dashboard-tabs" in css
     assert ".dashboard-layout" in css
