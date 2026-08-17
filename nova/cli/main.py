@@ -87,6 +87,12 @@ def build_parser() -> argparse.ArgumentParser:
     rocket.add_argument("--output-dir", default="outputs/cli")
     rocket.add_argument("--fast", action="store_true", help="Generate a coarse 4-channel, 1 mm mesh preview.")
     rocket.add_argument("--export-cfd", action="store_true", help="Export internal-flow CFD .msh and boundary conditions.")
+    rocket.add_argument(
+        "--geometry-backend",
+        choices=["cadquery", "picogk", "shapekernel"],
+        default=None,
+        help="Geometry backend. Defaults to NOVA_GEOMETRY_BACKEND or cadquery.",
+    )
 
     hx = design_sub.add_parser("heat-exchanger")
     hx.add_argument("--duty", type=float, required=True, help="Heat duty in kW.")
@@ -197,7 +203,7 @@ def _design_rocket(args: argparse.Namespace) -> int:
     job_id = output_dir.name
     channel_count = NovaRP.FAST_PREVIEW_COOLING_CHANNELS if args.fast else None
     mesh_tolerance_mm = FAST_CLI_MESH_TOLERANCE_MM if args.fast else DEFAULT_CLI_MESH_TOLERANCE_MM
-    design = NovaRP().design(spec, cooling_channel_count=channel_count)
+    design = NovaRP(geometry_backend=args.geometry_backend).design(spec, cooling_channel_count=channel_count)
     exporter = GeometryExporter()
     reporter = PerformanceReporter()
     stl = output_dir / "engine.stl"
@@ -228,6 +234,8 @@ def _design_rocket(args: argparse.Namespace) -> int:
                 "thermal_map": files.get("thermal_map"),
                 "cfd_mesh": files.get("cfd_mesh"),
                 "boundary_conditions": files.get("boundary_conditions"),
+                "geometry_backend": design.metadata.get("geometry_backend"),
+                "geometry_backend_requested": design.metadata.get("geometry_backend_requested"),
                 "mesh_tolerance_mm": mesh_tolerance_mm,
                 "cooling_channels": design.metadata["nozzle"].get("n_cooling_channels"),
             }

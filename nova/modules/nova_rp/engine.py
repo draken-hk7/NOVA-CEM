@@ -11,6 +11,7 @@ import numpy as np
 from nova.core.analysis import analyze_combustion_stability, estimate_thermal_fatigue_life, size_ignition_system
 from nova.core.exceptions import PhysicsViolationError
 from nova.core.geometry_engine.picogk_bridge import PicoGKBridge
+from nova.core.geometry_engine.shapekernel_bridge import ShapeKernelBridge, SUPPORTED_GEOMETRY_BACKENDS
 from nova.core.geometry_engine.primitives import GeometryBuilder, MeshSolid
 from nova.core.geometry_engine.rocket_geometry import InjectorHeadGeometry, RocketNozzleGeometry
 from nova.core.input_schema import RocketEngineSpec
@@ -46,6 +47,10 @@ class NovaRP:
     MIN_COOLING_CHANNEL_WALL_MM = 0.6
     GEOMETRY_DISABLED_VALUES = {"0", "false", "no", "off"}
 
+    def __init__(self, geometry_backend: str | None = None) -> None:
+        requested = (geometry_backend or os.getenv("NOVA_GEOMETRY_BACKEND", "cadquery")).strip().lower()
+        self.geometry_backend = requested if requested in SUPPORTED_GEOMETRY_BACKENDS else "cadquery"
+
     def design(self, spec: RocketEngineSpec, cooling_channel_count: int | None = None) -> EngineDesignResult:
         combustion_solver = CombustionSolver()
         nozzle_solver = NozzleFlowSolver()
@@ -75,7 +80,8 @@ class NovaRP:
                 chamber_length_mm=chamber_length_mm,
             )
 
-        geometry_backend = PicoGKBridge()
+        geometry_backend = PicoGKBridge(backend=self.geometry_backend)
+        shapekernel_backend = ShapeKernelBridge(backend=self.geometry_backend)
         if spec.nozzle_type == "bell":
             parameters = {
                 "nozzle_type": "bell",
@@ -102,6 +108,11 @@ class NovaRP:
                 lambda: RocketNozzleGeometry().aerospike_nozzle(**{key: value for key, value in parameters.items() if key != "nozzle_type"}),
                 **parameters,
             )
+
+        parameters["cooling_channel_depth_mm"] = float(nozzle_geo.metadata.get("channel_depth_mm", 0.0))
+        shapekernel_artifact = shapekernel_backend.build_rocket_stl(**parameters)
+        selected_backend = "shapekernel" if shapekernel_artifact is not None else geometry_backend.status.active_backend
+        requested_backend = shapekernel_backend.status.requested_backend
 
         self._check_envelope_constraints(spec, nozzle_geo.solid)
         heat_flux = self._bartz_heat_flux(combustion, throat_radius_mm)
@@ -167,8 +178,9 @@ class NovaRP:
                 "cooling_channel_wall_mm": nozzle_geo.channels.wall_thickness_mm,
                 "cooling_channel_pressure_drop_bar": cooling.pressure_drop_bar,
                 "feed_pressure_budget": feed_pressure_budget,
-                "geometry_backend": geometry_backend.status.active_backend,
-                "geometry_backend_requested": geometry_backend.status.requested_backend,
+                "geometry_backend": selected_backend,
+                "geometry_backend_requested": requested_backend,
+                "shapekernel_fallback_reason": shapekernel_backend.status.reason,
                 "propellant_manifold": manifold_metadata,
                 "manifold_wall_thickness_mm": float(
                     manifold_metadata.get(
@@ -191,6 +203,14 @@ class NovaRP:
                 "aerospace_analysis": aerospace_analysis,
             }
         )
+        if shapekernel_artifact is not None:
+            final_geometry.metadata.update(
+                {
+                    "native_stl_path": str(shapekernel_artifact.stl_path),
+                    "native_stl_backend": "shapekernel",
+                    "shapekernel_runner_message": shapekernel_artifact.runner_message,
+                }
+            )
         validation = ManufacturingValidator().validate(final_geometry)
         performance = EnginePerformance(
             specific_impulse_s=combustion.Isp,
@@ -223,7 +243,9 @@ class NovaRP:
                 "injector": injector.metadata,
                 "manifold": manifold_metadata,
                 "feed_pressure_budget": feed_pressure_budget,
-                "geometry_backend": geometry_backend.status.active_backend,
+                "geometry_backend": selected_backend,
+                "geometry_backend_requested": requested_backend,
+                "shapekernel_fallback_reason": shapekernel_backend.status.reason,
                 "aerospace_analysis": aerospace_analysis,
             },
             validation=validation,
@@ -423,7 +445,8 @@ class NovaRP:
                 "nozzle": metadata,
                 "geometry_enabled": False,
                 "feed_pressure_budget": feed_pressure_budget,
-                "geometry_backend": PicoGKBridge().status.active_backend,
+                "geometry_backend": "physics-only",
+                "geometry_backend_requested": self.geometry_backend,
                 "aerospace_analysis": aerospace_analysis,
             },
             validation=validation,

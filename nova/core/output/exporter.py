@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import shutil
 import textwrap
 import zipfile
 from pathlib import Path
@@ -44,6 +45,12 @@ class GeometryExporter:
         if angular_tolerance is not None:
             kwargs["angular_tolerance"] = angular_tolerance
         validate_for_stl_export(solid)
+        native_stl = solid.metadata.get("native_stl_path")
+        if native_stl:
+            native_stl_path = Path(str(native_stl))
+            if native_stl_path.is_file() and native_stl_path.stat().st_size > 0:
+                shutil.copyfile(native_stl_path, path)
+                return
         solid.export_stl(path, **kwargs)
 
     def to_step(self, solid: MeshSolid, path: str) -> None:

@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <ShapeKernelSourceDir Condition="'$(ShapeKernelSourceDir)' == ''">$(MSBuildProjectDirectory)\vendor\LEAP71_ShapeKernel</ShapeKernelSourceDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ShapeKernel itself is supplied by LEAP71 as source/submodule. -->
+    <PackageReference Include="PicoGK" Version="1.7.7.5" />
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('$(ShapeKernelSourceDir)\ShapeKernel')">
+    <Compile Include="$(ShapeKernelSourceDir)\ShapeKernel\**\*.cs" LinkBase="ShapeKernel" />
+  </ItemGroup>
+
+  <Target Name="RequireShapeKernelSource" BeforeTargets="CoreCompile"
+          Condition="!Exists('$(ShapeKernelSourceDir)\ShapeKernel\BaseShapes\BaseCylinder.cs')">
+    <Error Text="ShapeKernel source was not found. Clone LEAP71_ShapeKernel to $(ShapeKernelSourceDir), or build with -p:ShapeKernelSourceDir=&lt;path&gt;." />
+  </Target>
+</Project>

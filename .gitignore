@@ -10,3 +10,6 @@ outputs/
 /*.stl
 /*.pdf
 nova/feedback/db/
+nova/shapekernel_runner/bin/
+nova/shapekernel_runner/obj/
+nova/shapekernel_runner/vendor/
