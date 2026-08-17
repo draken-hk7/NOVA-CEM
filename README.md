@@ -26,7 +26,9 @@ is unavailable, NOVA automatically uses CadQuery instead.
 
 ShapeKernel is supplied by LEAP71 as source or a Git submodule, rather than as a
 ShapeKernel NuGet package. The runner references the official `PicoGK` NuGet
-package and compiles the ShapeKernel source with it.
+package (`2.3.0`) and compiles the ShapeKernel source with it. This version
+matches the current ShapeKernel source APIs, including `PicoGK.Numerics` and
+`PicoGK.Shapes`.
 
 1. Install the current **.NET 9 SDK**. The current LEAP71 PicoGK NuGet package
    targets `net9.0`; .NET 8 alone is detected by NOVA but cannot build this

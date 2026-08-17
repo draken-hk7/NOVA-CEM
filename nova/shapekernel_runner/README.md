@@ -6,6 +6,8 @@ BaseShapes and PicoGK to generate the native STL requested by NOVA.
 
 ShapeKernel is distributed by LEAP71 as source/a Git submodule, rather than as a
 NuGet package. PicoGK is the NuGet dependency used by this project.
+The runner pins PicoGK `2.3.0`, which supplies the `PicoGK.Numerics` and
+`PicoGK.Shapes` APIs used by current ShapeKernel source.
 
 ```powershell
 cd nova/shapekernel_runner

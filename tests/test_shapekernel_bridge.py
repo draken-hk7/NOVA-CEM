@@ -106,6 +106,9 @@ def test_runner_project_uses_picogk_and_shapekernel_base_shapes():
     project = (root / "nova_runner.csproj").read_text(encoding="utf-8")
     program = (root / "Program.cs").read_text(encoding="utf-8")
 
-    assert 'PackageReference Include="PicoGK"' in project
+    assert 'PackageReference Include="PicoGK" Version="2.3.0"' in project
+    assert "<EnableDefaultCompileItems>false</EnableDefaultCompileItems>" in project
+    assert "System.IO.Path]::GetFullPath" in project
+    assert project.count("ShapeKernel\\**\\*.cs") == 1
     assert "ShapeKernel\\**\\*.cs" in project
     assert all(name in program for name in ("BaseCylinder", "BaseCone", "BasePipe", "Sh.ExportVoxelsToSTLFile"))

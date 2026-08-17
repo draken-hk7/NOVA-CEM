@@ -4,20 +4,23 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- Keep vendored ShapeKernel files out of the SDK's implicit **/*.cs glob. -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <ShapeKernelSourceDir Condition="'$(ShapeKernelSourceDir)' == ''">$(MSBuildProjectDirectory)\vendor\LEAP71_ShapeKernel</ShapeKernelSourceDir>
+    <!-- Command-line relative paths are relative to the NOVA repository root. -->
+    <ShapeKernelSourceResolvedDir Condition="$([System.IO.Path]::IsPathRooted('$(ShapeKernelSourceDir)'))">$(ShapeKernelSourceDir)</ShapeKernelSourceResolvedDir>
+    <ShapeKernelSourceResolvedDir Condition="!$([System.IO.Path]::IsPathRooted('$(ShapeKernelSourceDir)'))">$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..\..\$(ShapeKernelSourceDir)'))</ShapeKernelSourceResolvedDir>
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="Program.cs" />
     <!-- ShapeKernel itself is supplied by LEAP71 as source/submodule. -->
-    <PackageReference Include="PicoGK" Version="1.7.7.5" />
-  </ItemGroup>
-
-  <ItemGroup Condition="Exists('$(ShapeKernelSourceDir)\ShapeKernel')">
-    <Compile Include="$(ShapeKernelSourceDir)\ShapeKernel\**\*.cs" LinkBase="ShapeKernel" />
+    <Compile Include="$(ShapeKernelSourceResolvedDir)\ShapeKernel\**\*.cs" LinkBase="ShapeKernel" />
+    <PackageReference Include="PicoGK" Version="2.3.0" />
   </ItemGroup>
 
   <Target Name="RequireShapeKernelSource" BeforeTargets="CoreCompile"
-          Condition="!Exists('$(ShapeKernelSourceDir)\ShapeKernel\BaseShapes\BaseCylinder.cs')">
-    <Error Text="ShapeKernel source was not found. Clone LEAP71_ShapeKernel to $(ShapeKernelSourceDir), or build with -p:ShapeKernelSourceDir=&lt;path&gt;." />
+          Condition="!Exists('$(ShapeKernelSourceResolvedDir)\ShapeKernel\BaseShapes\BaseCylinder.cs')">
+    <Error Text="ShapeKernel source was not found at $(ShapeKernelSourceResolvedDir). Clone LEAP71_ShapeKernel there, or build with -p:ShapeKernelSourceDir=&lt;absolute path&gt;." />
   </Target>
 </Project>
