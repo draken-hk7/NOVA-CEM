@@ -1,3 +1,5 @@
+import warnings
+
 import pytest
 
 from nova.core.geometry_engine.primitives import GeometryBuilder
@@ -74,6 +76,29 @@ def test_validator_warns_on_combustion_acoustic_resonance_band():
     assert stability.actual_value == pytest.approx(2000.0)
 
 
-def test_stl_export_validator_warns_on_failed_checks():
+def test_stl_export_validator_warns_on_failed_structural_checks():
     with pytest.warns(RuntimeWarning, match="STL validation warning"):
         validate_for_stl_export(_annotated_annular_wall(0.3))
+
+
+def test_stl_export_validator_records_combustion_stability_as_design_note():
+    solid = _annotated_annular_wall(1.0)
+    solid.metadata.update(
+        {
+            "chamber_length_mm": 100.0,
+            "combustion_gas_speed_of_sound_m_s": 400.0,
+        }
+    )
+
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always")
+        result = validate_for_stl_export(solid)
+
+    assert not result.passed
+    assert not [warning for warning in recorded if issubclass(warning.category, RuntimeWarning)]
+    assert solid.metadata["design_notes"] == [
+        {
+            "category": "combustion_stability",
+            "message": "First longitudinal chamber acoustic mode is 2000 Hz; NOVA warns inside the 1000-5000 Hz small-engine resonance band.",
+        }
+    ]

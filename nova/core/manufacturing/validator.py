@@ -253,14 +253,27 @@ class ManufacturingValidator:
 
 
 def validate_for_stl_export(solid: MeshSolid) -> ValidationResult:
-    """Run export-time validation and emit runtime warnings for failed checks."""
+    """Run export-time validation and record acoustic findings as design notes."""
 
     result = ManufacturingValidator().validate(solid)
     if not result.passed:
         for check in result.checks:
             if not check.passed:
+                if check.name == "Combustion stability acoustic mode":
+                    _record_design_note(solid, check.message)
+                    continue
                 warn(f"STL validation warning: {check.message}", RuntimeWarning, stacklevel=2)
     return result
+
+
+def _record_design_note(solid: MeshSolid, message: str) -> None:
+    notes = solid.metadata.setdefault("design_notes", [])
+    if not isinstance(notes, list):
+        notes = []
+        solid.metadata["design_notes"] = notes
+    note = {"category": "combustion_stability", "message": message}
+    if note not in notes:
+        notes.append(note)
 
 
 def _first_float(metadata: dict[str, Any], *keys: str) -> float | None:

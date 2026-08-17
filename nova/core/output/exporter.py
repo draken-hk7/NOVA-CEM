@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import math
 import shutil
 import textwrap
 import zipfile
+from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
+
+import numpy as np
 
 from nova.core.geometry_engine.primitives import MeshSolid
 from nova.core.manufacturing import validate_for_stl_export
@@ -25,6 +29,21 @@ CFD_PATCH_IDS = {
     "internal_flow": 6,
 }
 MM_TO_M = 0.001
+
+
+class NOVAJSONEncoder(json.JSONEncoder):
+    """Encode NOVA analysis data without leaking implementation objects to JSON."""
+
+    def default(self, value: Any) -> Any:
+        if is_dataclass(value):
+            return asdict(value)
+        if isinstance(value, np.ndarray):
+            return value.tolist()
+        if isinstance(value, (np.float32, np.float64, np.int32, np.int64)):
+            return value.item()
+        if isinstance(value, np.generic):
+            return value.item()
+        return str(value)
 
 
 class GeometryExporter:
@@ -501,7 +520,9 @@ class PerformanceReporter:
         self._write_minimal_pdf(path, "\n".join(lines), thermal_map_data=thermal_map_data)
 
     def generate_json_data(self, run_result: CEMRunResult) -> dict:
-        return to_jsonable(run_result)
+        # Keep callers on the simple ``json.dumps(reporter.generate_json_data(...))``
+        # contract while safely normalizing dataclass-based analyses and NumPy values.
+        return json.loads(json.dumps(to_jsonable(run_result), cls=NOVAJSONEncoder))
 
     def generate_cfd_mesh(self, design: Any, path: str) -> None:
         GeometryExporter().to_cfd_mesh(design, path)
@@ -550,7 +571,7 @@ class PerformanceReporter:
             _report_manufacturing_page(payload, metadata),
             _report_drawing_page(technical_drawing_data),
             _report_thermal_page(thermal_map_data),
-            _report_analysis_page(analysis, metadata),
+            _report_analysis_page(analysis, metadata, _mapping(_mapping(payload.get("design")).get("validation"))),
         ]
         write_vector_pdf_pages(path, pages)
 
@@ -790,7 +811,8 @@ def _report_thermal_page(data: ThermalMapData | None) -> list[str]:
     return commands
 
 
-def _report_analysis_page(analysis: dict, metadata: dict) -> list[str]:
+def _report_analysis_page(analysis: dict, metadata: dict, validation: dict) -> list[str]:
+    del metadata
     stability = _mapping(analysis.get("combustion_stability"))
     fatigue = _mapping(analysis.get("thermal_fatigue"))
     ignition = _mapping(analysis.get("ignition"))
@@ -814,10 +836,21 @@ def _report_analysis_page(analysis: dict, metadata: dict) -> list[str]:
         ("Placement", f"Z {_number(ignition.get('placement_z_mm')):.1f} mm | {_number(ignition.get('placement_angle_deg')):.0f} deg"),
     ]
     risk_text = "STABILITY RISK DETECTED. Recommend baffled injector and acoustic validation." if stability.get("stability_risk") else "No coupled acoustic mode is within the +/-10% screening band."
+    acoustic_design_note = any(
+        item.get("name") == "Combustion stability acoustic mode" and not item.get("passed")
+        for item in validation.get("checks", [])
+        if isinstance(item, dict)
+    )
+    design_note = (
+        "DESIGN NOTE: Retain a baffled injector and validate chamber acoustics during instrumented hot-fire."
+        if acoustic_design_note
+        else ""
+    )
     return [
         *_report_header("AEROSPACE SCREENING ANALYSIS", "05 / 05", "COMBUSTION STABILITY, FATIGUE AND IGNITION"),
         _report_text(48, 675, 11, risk_text, bold=True),
         _report_text(48, 652, 8, _text_value(stability.get("recommendation"))),
+        *([_report_text(48, 628, 8, design_note, bold=True, color=(0.69, 0.28, 0.19))] if design_note else []),
         *_report_table(48, 595, "COMBUSTION ACOUSTIC MODES", mode_rows[:5], accent=(0.69, 0.28, 0.19) if stability.get("stability_risk") else (0.10, 0.49, 0.41)),
         *_report_table(330, 595, "THERMAL FATIGUE SCREEN", fatigue_rows, accent=(0.42, 0.32, 0.60)),
         *_report_table(48, 350, "IGNITION SYSTEM SIZING", ignition_rows, accent=(0.13, 0.33, 0.60)),

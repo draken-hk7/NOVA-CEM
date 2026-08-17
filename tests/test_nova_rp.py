@@ -74,6 +74,7 @@ def test_nova_rp_design_returns_geometry_performance_and_trace():
     assert b"ENGINEERING DRAWING" in report_bytes
     assert b"THERMAL MAP" in report_bytes
     assert b"AEROSPACE SCREENING ANALYSIS" in report_bytes
+    assert b"DESIGN NOTE" in report_bytes
     assert b"/Count 5" in report_bytes
     drawing_svg_text = drawing_svg.read_text(encoding="utf-8")
     assert "FRONT PROFILE" in drawing_svg_text
