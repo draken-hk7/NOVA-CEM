@@ -14,6 +14,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +22,7 @@ from typing import Any
 
 
 SUPPORTED_GEOMETRY_BACKENDS = frozenset({"cadquery", "picogk", "shapekernel"})
+NOVA_CEM_ROOT = Path(__file__).resolve().parents[3]
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,7 +53,8 @@ class ShapeKernelBridge:
     def __init__(self, backend: str | None = None) -> None:
         requested = (backend or os.getenv("NOVA_GEOMETRY_BACKEND", "cadquery")).strip().lower()
         self.requested_backend = requested if requested in SUPPORTED_GEOMETRY_BACKENDS else "cadquery"
-        self._runner_dir = Path(__file__).resolve().parents[2] / "shapekernel_runner"
+        self._runner_dir = NOVA_CEM_ROOT / "nova" / "shapekernel_runner"
+        self._searched_runner_paths: list[Path] = []
         self._source_dir = Path(
             os.getenv(
                 "NOVA_SHAPEKERNEL_SOURCE",
@@ -62,6 +65,8 @@ class ShapeKernelBridge:
         self._command = self._resolve_runner_command() if self._dotnet else None
         self.active_backend = "shapekernel" if self.requested_backend == "shapekernel" and self._command else "cadquery"
         self.reason = self._initial_reason()
+        if self.requested_backend == "shapekernel" and self.active_backend != "shapekernel":
+            self._debug(f"Falling back to CadQuery: {self.reason}")
 
     @property
     def status(self) -> ShapeKernelBackendStatus:
@@ -142,11 +147,22 @@ class ShapeKernelBridge:
         assert self._dotnet is not None
         configured_runner = os.getenv("NOVA_SHAPEKERNEL_RUNNER")
         if configured_runner:
-            return self._command_for_runner_path(Path(configured_runner).expanduser())
+            configured_path = Path(configured_runner).expanduser()
+            command = self._command_for_runner_path(configured_path)
+            if command:
+                return command
 
         for configuration in ("Release", "Debug"):
             runner_dll = self._runner_dir / "bin" / configuration / "net9.0" / "nova_runner.dll"
-            if runner_dll.is_file():
+            self._searched_runner_paths.append(runner_dll)
+            try:
+                exists = runner_dll.is_file()
+            except OSError as exc:
+                self._debug(f"Runner search failed at {runner_dll}: {exc}")
+                continue
+            self._debug(f"Searching for compiled runner at {runner_dll}: exists={exists}")
+            if exists:
+                self._debug(f"Using ShapeKernel runner command: {self._dotnet} {runner_dll}")
                 return [self._dotnet, str(runner_dll)]
 
         project = self._runner_dir / "nova_runner.csproj"
@@ -161,13 +177,22 @@ class ShapeKernelBridge:
                 f"-p:ShapeKernelSourceDir={self._source_dir}",
                 "--",
             ]
+        self._debug(f"No ShapeKernel runner was found. Searched: {self._runner_search_summary()}")
         return None
 
     def _command_for_runner_path(self, runner_path: Path) -> list[str] | None:
-        if not runner_path.is_file():
+        self._searched_runner_paths.append(runner_path)
+        try:
+            exists = runner_path.is_file()
+        except OSError as exc:
+            self._debug(f"Configured ShapeKernel runner path could not be inspected ({runner_path}): {exc}")
+            return None
+        self._debug(f"Searching configured ShapeKernel runner at {runner_path}: exists={exists}")
+        if not exists:
             return None
         if runner_path.suffix.lower() == ".dll":
             assert self._dotnet is not None
+            self._debug(f"Using configured ShapeKernel runner command: {self._dotnet} {runner_path}")
             return [self._dotnet, str(runner_path)]
         return [str(runner_path)]
 
@@ -177,12 +202,22 @@ class ShapeKernelBridge:
         if not self._dotnet:
             return "dotnet runtime is not available"
         if not self._command:
-            return "ShapeKernel runner is not built and no ShapeKernel source directory is configured"
+            return f"ShapeKernel runner was not found. Searched: {self._runner_search_summary()}"
         return None
 
     def _fallback(self, reason: str) -> None:
         self.active_backend = "cadquery"
         self.reason = reason
+        self._debug(f"Falling back to CadQuery: {reason}. Searched: {self._runner_search_summary()}")
+
+    def _runner_search_summary(self) -> str:
+        if not self._searched_runner_paths:
+            return "no runner path was inspected"
+        return "; ".join(str(path) for path in self._searched_runner_paths)
+
+    @staticmethod
+    def _debug(message: str) -> None:
+        print(f"[NOVA ShapeKernel] {message}", file=sys.stderr)
 
     @staticmethod
     def _response_from_stdout(stdout: str) -> dict[str, Any]:

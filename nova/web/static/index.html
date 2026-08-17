@@ -234,7 +234,10 @@
                 <section id="design-log-panel" class="design-log-panel">
                   <div class="panel-heading compact-heading">
                     <h2>Design Log</h2>
-                    <span class="muted">Realtime</span>
+                    <output id="design-progress-label" class="muted" for="design-progress-bar">0%</output>
+                  </div>
+                  <div class="design-progress-track" role="progressbar" aria-label="Rocket engine design progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                    <div id="design-progress-bar" class="design-progress-bar"></div>
                   </div>
                   <ol id="design-log-list" class="design-log-list">
                     <li class="muted">No design running</li>

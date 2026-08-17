@@ -26,6 +26,43 @@ def test_shapekernel_bridge_falls_back_when_dotnet_is_unavailable(monkeypatch):
     assert bridge.status.reason == "dotnet runtime is not available"
 
 
+def test_shapekernel_bridge_finds_root_relative_compiled_dll(monkeypatch, capsys):
+    root = _artifact_dir("shapekernel-root-discovery")
+    runner = root / "nova" / "shapekernel_runner" / "bin" / "Release" / "net9.0" / "nova_runner.dll"
+    runner.parent.mkdir(parents=True, exist_ok=True)
+    runner.write_bytes(b"runner")
+
+    def fake_run(command, **_kwargs):
+        assert command[-1] == "--version"
+        return subprocess.CompletedProcess(command, 0, "9.0.100\n", "")
+
+    monkeypatch.setattr(shapekernel_bridge, "NOVA_CEM_ROOT", root)
+    monkeypatch.setattr(shapekernel_bridge.shutil, "which", lambda _name: "dotnet")
+    monkeypatch.setattr(shapekernel_bridge.subprocess, "run", fake_run)
+    bridge = ShapeKernelBridge(backend="shapekernel")
+
+    assert bridge.status.active_backend == "shapekernel"
+    assert bridge.status.runner_command == ("dotnet", str(runner))
+    assert str(runner) in capsys.readouterr().err
+
+
+def test_shapekernel_bridge_logs_exact_runner_search_when_falling_back(monkeypatch, capsys):
+    root = _artifact_dir("shapekernel-root-fallback")
+
+    def fake_run(command, **_kwargs):
+        return subprocess.CompletedProcess(command, 0, "9.0.100\n", "")
+
+    expected = root / "nova" / "shapekernel_runner" / "bin" / "Release" / "net9.0" / "nova_runner.dll"
+    monkeypatch.setattr(shapekernel_bridge, "NOVA_CEM_ROOT", root)
+    monkeypatch.setattr(shapekernel_bridge.shutil, "which", lambda _name: "dotnet")
+    monkeypatch.setattr(shapekernel_bridge.subprocess, "run", fake_run)
+    bridge = ShapeKernelBridge(backend="shapekernel")
+
+    assert bridge.status.active_backend == "cadquery"
+    assert str(expected) in (bridge.status.reason or "")
+    assert f"Falling back to CadQuery: {bridge.status.reason}" in capsys.readouterr().err
+
+
 def test_shapekernel_bridge_sends_json_and_accepts_native_stl(monkeypatch):
     artifact_dir = _artifact_dir("shapekernel-bridge")
     runner = artifact_dir / "nova_runner.dll"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import os
+from collections.abc import Callable
 from types import SimpleNamespace
 
 import numpy as np
@@ -51,10 +52,17 @@ class NovaRP:
         requested = (geometry_backend or os.getenv("NOVA_GEOMETRY_BACKEND", "cadquery")).strip().lower()
         self.geometry_backend = requested if requested in SUPPORTED_GEOMETRY_BACKENDS else "cadquery"
 
-    def design(self, spec: RocketEngineSpec, cooling_channel_count: int | None = None) -> EngineDesignResult:
+    def design(
+        self,
+        spec: RocketEngineSpec,
+        cooling_channel_count: int | None = None,
+        progress_callback: Callable[[str, int], None] | None = None,
+    ) -> EngineDesignResult:
+        self._report_progress(progress_callback, "Validating inputs...", 5)
         combustion_solver = CombustionSolver()
         nozzle_solver = NozzleFlowSolver()
         expansion_ratio = self._effective_expansion_ratio(spec)
+        self._report_progress(progress_callback, "Running NASA CEA combustion solver...", 15)
         combustion = combustion_solver.solve(
             spec.propellant,
             self._optimal_OF(spec),
@@ -62,7 +70,9 @@ class NovaRP:
             expansion_ratio=expansion_ratio,
         )
 
+        self._report_progress(progress_callback, "Computing nozzle flow...", 30)
         throat_area_m2 = nozzle_solver.throat_area(spec.thrust_N, spec.chamber_pressure_bar, combustion.Cf)
+        self._report_progress(progress_callback, "Sizing throat...", 40)
         throat_radius_mm = math.sqrt(throat_area_m2 / math.pi) * 1000.0
         chamber_radius_mm = throat_radius_mm * RocketHeuristics.chamber_contraction_ratio(spec.thrust_N) ** 0.5
         wall_thickness_mm = self._wall_thickness(spec, chamber_radius_mm)
@@ -78,8 +88,10 @@ class NovaRP:
                 wall_thickness_mm=wall_thickness_mm,
                 n_channels=n_channels,
                 chamber_length_mm=chamber_length_mm,
+                progress_callback=progress_callback,
             )
 
+        self._report_progress(progress_callback, "Generating 3D geometry...", 55)
         geometry_backend = PicoGKBridge(backend=self.geometry_backend)
         shapekernel_backend = ShapeKernelBridge(backend=self.geometry_backend)
         if spec.nozzle_type == "bell":
@@ -115,6 +127,7 @@ class NovaRP:
         requested_backend = shapekernel_backend.status.requested_backend
 
         self._check_envelope_constraints(spec, nozzle_geo.solid)
+        self._report_progress(progress_callback, "Computing heat transfer...", 70)
         heat_flux = self._bartz_heat_flux(combustion, throat_radius_mm)
         cooling = CoolingChannelSolver().solve_channel(
             heat_flux_W_m2=heat_flux,
@@ -141,6 +154,7 @@ class NovaRP:
                 unit=" K",
             )
 
+        self._report_progress(progress_callback, "Running structural validation...", 80)
         structural = StructuralSolver().validate_chamber(nozzle_geo, spec, combustion)
         if not structural.passed:
             raise PhysicsViolationError(
@@ -341,6 +355,20 @@ class NovaRP:
         value = os.getenv("NOVA_GEOMETRY_ENABLED", "true").strip().lower()
         return value not in self.GEOMETRY_DISABLED_VALUES
 
+    @staticmethod
+    def _report_progress(
+        progress_callback: Callable[[str, int], None] | None,
+        message: str,
+        progress: int,
+    ) -> None:
+        if progress_callback is None:
+            return
+        try:
+            progress_callback(message, progress)
+        except Exception:
+            # Dashboard telemetry must never interrupt an engineering calculation.
+            return
+
     def _design_physics_only(
         self,
         *,
@@ -352,6 +380,7 @@ class NovaRP:
         wall_thickness_mm: float,
         n_channels: int,
         chamber_length_mm: float,
+        progress_callback: Callable[[str, int], None] | None = None,
     ) -> EngineDesignResult:
         metadata, channels = self._physics_only_nozzle_metadata(
             spec=spec,
@@ -363,6 +392,7 @@ class NovaRP:
             n_channels=n_channels,
         )
         self._check_physics_only_envelope_constraints(spec, metadata)
+        self._report_progress(progress_callback, "Computing heat transfer...", 70)
         heat_flux = self._bartz_heat_flux(combustion, throat_radius_mm)
         cooling = CoolingChannelSolver().solve_channel(
             heat_flux_W_m2=heat_flux,
@@ -389,6 +419,7 @@ class NovaRP:
                 unit=" K",
             )
 
+        self._report_progress(progress_callback, "Running structural validation...", 80)
         validation_metadata = self._validation_metadata(
             spec,
             metadata,

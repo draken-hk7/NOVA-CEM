@@ -48,6 +48,9 @@ const viewerPanels = document.querySelectorAll("[data-viewer-panel]");
 const cadViewerEl = document.querySelector("#cad-viewer");
 const cadViewerStatusEl = document.querySelector("#cad-viewer-status");
 const designLogListEl = document.querySelector("#design-log-list");
+const designProgressBarEl = document.querySelector("#design-progress-bar");
+const designProgressLabelEl = document.querySelector("#design-progress-label");
+const designProgressTrackEl = document.querySelector(".design-progress-track");
 const tabButtons = document.querySelectorAll(".tab-button");
 const tabPanels = document.querySelectorAll("[data-tab-panel]");
 const moduleForms = document.querySelectorAll("[data-module-form]");
@@ -429,19 +432,36 @@ function setDesignLog(entries) {
   }).join("");
 }
 
-function appendDesignLog(text, state = "done") {
+function appendDesignLog(text, state = "done", timeLabel = timestampLabel()) {
   const existingIdle = designLogListEl.querySelector(".idle");
   if (existingIdle) {
     designLogListEl.replaceChildren();
   }
+  if (state === "running") {
+    designLogListEl.querySelectorAll("li.running").forEach((entry) => entry.classList.replace("running", "done"));
+  }
   const item = document.createElement("li");
   item.className = state;
   const time = document.createElement("span");
-  time.textContent = timestampLabel();
+  time.textContent = timeLabel;
   item.appendChild(time);
   item.appendChild(document.createTextNode(text));
   designLogListEl.appendChild(item);
   designLogListEl.scrollTop = designLogListEl.scrollHeight;
+}
+
+function streamTimestampLabel(value) {
+  const timestamp = new Date(value);
+  return Number.isNaN(timestamp.getTime())
+    ? timestampLabel()
+    : timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function setDesignProgress(progress, label = "") {
+  const value = Math.max(0, Math.min(100, Number(progress) || 0));
+  designProgressBarEl.style.width = `${value}%`;
+  designProgressLabelEl.textContent = label ? `${value}% ${label}` : `${value}%`;
+  designProgressTrackEl.setAttribute("aria-valuenow", String(value));
 }
 
 function designLogSteps(module) {
@@ -472,6 +492,7 @@ function designLogSteps(module) {
 
 function startDesignLog(module) {
   setDesignLog([]);
+  setDesignProgress(0);
   appendDesignLog(`${moduleLabel(module)} design started`, "running");
   return designLogSteps(module);
 }
@@ -1232,12 +1253,14 @@ async function renderSTLPreview(stlUrl, label, job = null) {
   animate();
 }
 
-function renderResults(job) {
+function renderResults(job, { preserveDesignLog = false } = {}) {
   const module = job.module || "rocket-engine";
   activeJobEl.textContent = `${moduleLabel(module)} - ${job.job_id}`;
   renderMetricCards(resultCardsEl, module, job.metrics || {});
   renderValidation(job.validation);
-  finishDesignLog(job);
+  if (!preserveDesignLog) {
+    finishDesignLog(job);
+  }
 
   downloadButtonsEl.classList.remove("muted");
   downloadButtonsEl.innerHTML = artifactLinks(job, {
@@ -1250,6 +1273,51 @@ function renderResults(job) {
   setViewerTab("mesh");
   renderSTLPreview(stlDownloadUrl(job), `${moduleLabel(module)} - ${job.job_id}`, job);
   renderCADPreview(job);
+}
+
+function streamRocketEngineDesign(payload) {
+  const query = new URLSearchParams({
+    propellant: payload.propellant,
+    thrust_N: String(payload.thrust_N),
+    chamber_pressure_bar: String(payload.chamber_pressure_bar),
+    material: payload.material
+  });
+
+  return new Promise((resolve, reject) => {
+    const source = new EventSource(`/api/design/rocket-engine/stream?${query.toString()}`);
+    let settled = false;
+    const close = () => {
+      source.close();
+      settled = true;
+    };
+
+    source.addEventListener("progress", (event) => {
+      const update = JSON.parse(event.data);
+      appendDesignLog(
+        update.message,
+        Number(update.progress) >= 100 ? "done" : "running",
+        streamTimestampLabel(update.timestamp)
+      );
+      setDesignProgress(update.progress, update.message.replace(/\.\.\.$/, ""));
+    });
+    source.addEventListener("complete", (event) => {
+      const payload = JSON.parse(event.data);
+      setDesignProgress(100, "Complete");
+      close();
+      resolve(payload);
+    });
+    source.addEventListener("failure", (event) => {
+      const failure = JSON.parse(event.data);
+      close();
+      reject(new Error(failure.message || "Design failed"));
+    });
+    source.onerror = () => {
+      if (!settled) {
+        close();
+        reject(new Error("Lost connection to the engine design stream"));
+      }
+    };
+  });
 }
 
 function renderMetricCards(container, module, metrics) {
@@ -1667,8 +1735,9 @@ function bindDesignForm(module, config) {
     setStatus(`Designing ${config.label}`);
     config.button.disabled = true;
     const steps = startDesignLog(module);
+    const requestPayload = config.payload(config.form);
     let stepIndex = 0;
-    const logTimer = window.setInterval(() => {
+    const logTimer = module === "rocket-engine" ? null : window.setInterval(() => {
       if (stepIndex < steps.length) {
         appendDesignLog(`${steps[stepIndex]}... done`, "done");
         stepIndex += 1;
@@ -1676,22 +1745,16 @@ function bindDesignForm(module, config) {
     }, 550);
 
     try {
-      const response = await fetch(config.endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(config.payload(config.form))
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.detail || "Design failed");
+      const payload = module === "rocket-engine"
+        ? await streamRocketEngineDesign(requestPayload)
+        : await submitModuleDesign(config.endpoint, requestPayload);
+      if (module !== "rocket-engine") {
+        while (stepIndex < steps.length) {
+          appendDesignLog(`${steps[stepIndex]}... done`, "done");
+          stepIndex += 1;
+        }
       }
-      while (stepIndex < steps.length) {
-        appendDesignLog(`${steps[stepIndex]}... done`, "done");
-        stepIndex += 1;
-      }
-      renderResults(payload.job);
+      renderResults(payload.job, { preserveDesignLog: module === "rocket-engine" });
       await loadHistory();
       setStatus("Complete");
     } catch (error) {
@@ -1699,10 +1762,27 @@ function bindDesignForm(module, config) {
       setError(error.message);
       setStatus("Failed");
     } finally {
-      window.clearInterval(logTimer);
+      if (logTimer) {
+        window.clearInterval(logTimer);
+      }
       config.button.disabled = false;
     }
   });
+}
+
+async function submitModuleDesign(endpoint, payload) {
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+  const responsePayload = await response.json();
+  if (!response.ok) {
+    throw new Error(responsePayload.detail || "Design failed");
+  }
+  return responsePayload;
 }
 
 async function runMission(event) {

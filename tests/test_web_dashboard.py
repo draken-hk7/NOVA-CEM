@@ -13,12 +13,53 @@ def test_dashboard_registers_all_design_routes():
     routes = {route.path for route in web_main.app.routes}
 
     assert "/api/design/rocket-engine" in routes
+    assert "/api/design/rocket-engine/stream" in routes
     assert "/api/design/heat-exchanger" in routes
     assert "/api/design/actuator" in routes
     assert "/api/mission" in routes
     assert "/api/jobs/{job_id}" in routes
     assert "/api/jobs/{job_id}/star" in routes
     assert "/api/history/export.csv" in routes
+
+
+def test_engine_design_stream_emits_timestamped_progress_and_completion(monkeypatch):
+    events = []
+
+    def fake_design(request, progress_callback):
+        assert request.propellant == "kerolox"
+        for message, progress in (
+            ("Validating inputs...", 5),
+            ("Running NASA CEA combustion solver...", 15),
+            ("Generating engineering drawing...", 95),
+            ("Complete", 100),
+        ):
+            events.append((message, progress))
+            progress_callback(message, progress)
+        return {"job": {"job_id": "stream-job", "module": "rocket-engine"}}
+
+    monkeypatch.setattr(web_main, "_run_dashboard_engine_design", fake_design)
+
+    async def consume_stream():
+        response = await web_main.design_engine_stream(
+            propellant="kerolox",
+            thrust_N=5000.0,
+            chamber_pressure_bar=50.0,
+            material="inconel",
+        )
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk.decode("utf-8") if isinstance(chunk, bytes) else chunk)
+        return response, "".join(chunks)
+
+    response, body = asyncio.run(consume_stream())
+
+    assert response.media_type == "text/event-stream"
+    assert response.headers["x-accel-buffering"] == "no"
+    assert events[-1] == ("Complete", 100)
+    assert "event: progress" in body
+    assert '"message":"Running NASA CEA combustion solver..."' in body
+    assert '"timestamp":' in body
+    assert "event: complete" in body
 
 
 def _configure_history(monkeypatch, name: str, jobs: list[dict]) -> Path:
@@ -364,6 +405,7 @@ def test_dashboard_embeds_threejs_stl_viewer_assets():
     assert 'data-viewer-tab="cad"' in html
     assert 'id="cad-viewer"' in html
     assert 'id="design-log-list"' in html
+    assert 'id="design-progress-bar"' in html
     assert "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" in js
     assert "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js" in js
     assert "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js" in js
@@ -421,11 +463,15 @@ def test_dashboard_embeds_threejs_stl_viewer_assets():
     assert "renderCADPreview(job)" in js
     assert "appendDesignLog" in js
     assert "startDesignLog(module)" in js
+    assert "streamRocketEngineDesign" in js
+    assert "new EventSource(`/api/design/rocket-engine/stream?${query.toString()}`)" in js
+    assert "setDesignProgress(update.progress" in js
     assert "new window.Chart" in js
     assert ".stl-viewer" in css
     assert ".cad-viewer" in css
     assert ".viewer-tabs" in css
     assert ".design-log-list" in css
+    assert ".design-progress-track" in css
     assert ".radar-chart-frame" in css
     assert ".viewer-controls" in css
     assert ".range-control" in css

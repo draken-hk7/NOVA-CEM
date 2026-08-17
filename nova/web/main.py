@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -10,10 +11,11 @@ from csv import DictWriter
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
+from collections.abc import AsyncIterator, Callable
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -80,6 +82,40 @@ async def dashboard() -> FileResponse:
 @app.post("/api/design")
 @app.post("/api/design/rocket-engine")
 async def design_engine(request: DashboardEngineRequest) -> dict:
+    try:
+        return _run_dashboard_engine_design(request)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/design/rocket-engine/stream")
+async def design_engine_stream(
+    propellant: Literal["kerolox", "methalox", "hydrolox"],
+    thrust_N: float,
+    chamber_pressure_bar: float,
+    material: Literal["copper", "inconel"],
+) -> StreamingResponse:
+    request = DashboardEngineRequest(
+        propellant=propellant,
+        thrust_N=thrust_N,
+        chamber_pressure_bar=chamber_pressure_bar,
+        material=material,
+    )
+    return StreamingResponse(
+        _stream_engine_design_events(request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _run_dashboard_engine_design(
+    request: DashboardEngineRequest,
+    progress_callback: Callable[[str, int], None] | None = None,
+) -> dict:
     spec = RocketEngineSpec(
         thrust_N=request.thrust_N,
         chamber_pressure_bar=request.chamber_pressure_bar,
@@ -91,29 +127,71 @@ async def design_engine(request: DashboardEngineRequest) -> dict:
     job_dir = WEB_JOB_ROOT / job_id
     job_dir.mkdir(parents=True, exist_ok=False)
 
+    design = NovaRP().design(spec, progress_callback=progress_callback)
+    files = _export_dashboard_artifacts(job_id, spec, design, job_dir, progress_callback=progress_callback)
+    record = _job_record(
+        job_id=job_id,
+        module="rocket-engine",
+        parameters={
+            "propellant": spec.propellant,
+            "thrust_N": spec.thrust_N,
+            "chamber_pressure_bar": spec.chamber_pressure_bar,
+            "material": spec.material,
+            "expansion_ratio": design.performance.expansion_ratio,
+        },
+        metrics=_engine_metrics(design),
+        validation=_validation_results(design),
+        files=files,
+        metadata=_design_metadata(design),
+        design_log=_design_log(design),
+    )
+    _prepend_history(record)
+    _notify_design_progress(progress_callback, "Complete", 100)
+    return {"job": _public_record(record)}
+
+
+async def _stream_engine_design_events(request: DashboardEngineRequest) -> AsyncIterator[str]:
+    queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+
+    def report_progress(message: str, progress: int) -> None:
+        loop.call_soon_threadsafe(queue.put_nowait, _design_progress_event(message, progress))
+
+    task = asyncio.create_task(asyncio.to_thread(_run_dashboard_engine_design, request, report_progress))
+    while not task.done() or not queue.empty():
+        try:
+            event = await asyncio.wait_for(queue.get(), timeout=0.25)
+        except TimeoutError:
+            continue
+        yield _sse_event("progress", event)
+
     try:
-        design = NovaRP().design(spec)
-        files = _export_dashboard_artifacts(job_id, spec, design, job_dir)
-        record = _job_record(
-            job_id=job_id,
-            module="rocket-engine",
-            parameters={
-                "propellant": spec.propellant,
-                "thrust_N": spec.thrust_N,
-                "chamber_pressure_bar": spec.chamber_pressure_bar,
-                "material": spec.material,
-                "expansion_ratio": design.performance.expansion_ratio,
-            },
-            metrics=_engine_metrics(design),
-            validation=_validation_results(design),
-            files=files,
-            metadata=_design_metadata(design),
-            design_log=_design_log(design),
-        )
-        _prepend_history(record)
-        return {"job": _public_record(record)}
+        result = await task
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        yield _sse_event("failure", _design_progress_event(str(exc), 100))
+        return
+    yield _sse_event("complete", result)
+
+
+def _notify_design_progress(
+    progress_callback: Callable[[str, int], None] | None,
+    message: str,
+    progress: int,
+) -> None:
+    if progress_callback is not None:
+        progress_callback(message, progress)
+
+
+def _design_progress_event(message: str, progress: int) -> dict[str, object]:
+    return {
+        "message": message,
+        "progress": max(0, min(100, int(progress))),
+        "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+
+
+def _sse_event(event_name: str, payload: dict[str, object]) -> str:
+    return f"event: {event_name}\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n"
 
 
 @app.post("/api/design/heat-exchanger")
@@ -286,8 +364,22 @@ async def download_artifact(job_id: str, artifact: Literal["stl", "step", "repor
     return FileResponse(path, media_type=media_types[artifact], filename=path.name)
 
 
-def _export_dashboard_artifacts(job_id: str, spec: RocketEngineSpec, design: object, job_dir: Path) -> dict[str, str]:
-    return _export_module_artifacts(job_id, "rocket-engine", spec.model_dump(), design, job_dir, "engine")
+def _export_dashboard_artifacts(
+    job_id: str,
+    spec: RocketEngineSpec,
+    design: object,
+    job_dir: Path,
+    progress_callback: Callable[[str, int], None] | None = None,
+) -> dict[str, str]:
+    return _export_module_artifacts(
+        job_id,
+        "rocket-engine",
+        spec.model_dump(),
+        design,
+        job_dir,
+        "engine",
+        progress_callback=progress_callback,
+    )
 
 
 def _export_module_artifacts(
@@ -297,6 +389,7 @@ def _export_module_artifacts(
     design: object,
     job_dir: Path,
     artifact_basename: str,
+    progress_callback: Callable[[str, int], None] | None = None,
 ) -> dict[str, str]:
     exporter = GeometryExporter()
     reporter = PerformanceReporter()
@@ -307,10 +400,12 @@ def _export_module_artifacts(
 
     files: dict[str, str] = {}
     if getattr(design, "geometry", None) is not None:
+        _notify_design_progress(progress_callback, "Exporting STL...", 88)
         exporter.to_stl(design.geometry, str(stl))
         exporter.to_step(design.geometry, str(step))
         files.update({"stl": str(stl), "step": str(step)})
     run = CEMRunResult(job_id=job_id, module=module, inputs=inputs, design=design, files=files)
+    _notify_design_progress(progress_callback, "Generating engineering drawing...", 95)
     reporter.generate_pdf_report(run, str(report))
     data.write_text(json.dumps(reporter.generate_json_data(run), indent=2), encoding="utf-8")
     files.update({"report": str(report), "json": str(data)})
