@@ -67,8 +67,6 @@ def test_shapekernel_bridge_sends_json_and_accepts_native_stl(monkeypatch):
     artifact_dir = _artifact_dir("shapekernel-bridge")
     runner = artifact_dir / "nova_runner.dll"
     runner.write_bytes(b"runner")
-    runner_output_dir = artifact_dir / "runner-output"
-    runner_output_dir.mkdir(parents=True, exist_ok=True)
     seen_payload = {}
 
     def fake_run(command, **kwargs):
@@ -86,9 +84,9 @@ def test_shapekernel_bridge_sends_json_and_accepts_native_stl(monkeypatch):
         )
 
     monkeypatch.setenv("NOVA_SHAPEKERNEL_RUNNER", str(runner))
+    monkeypatch.setattr(shapekernel_bridge, "NOVA_CEM_ROOT", artifact_dir)
     monkeypatch.setattr(shapekernel_bridge.shutil, "which", lambda _name: "dotnet")
     monkeypatch.setattr(shapekernel_bridge.subprocess, "run", fake_run)
-    monkeypatch.setattr(shapekernel_bridge.tempfile, "mkdtemp", lambda prefix: str(runner_output_dir))
     bridge = ShapeKernelBridge(backend="shapekernel")
 
     result = bridge.build_rocket_stl(
@@ -106,6 +104,44 @@ def test_shapekernel_bridge_sends_json_and_accepts_native_stl(monkeypatch):
     assert bridge.status.active_backend == "shapekernel"
     assert seen_payload["nozzle_type"] == "bell"
     assert seen_payload["output_stl"] == str(result.stl_path)
+    assert result.stl_path.parent.parent == artifact_dir / "outputs" / "shapekernel_work"
+
+
+def test_shapekernel_bridge_logs_full_traceback_for_working_directory_failure(monkeypatch, capsys):
+    artifact_dir = _artifact_dir("shapekernel-traceback")
+    runner = artifact_dir / "nova_runner.dll"
+    runner.write_bytes(b"runner")
+
+    def fake_run(command, **_kwargs):
+        if command[-1] == "--version":
+            return subprocess.CompletedProcess(command, 0, "9.0.100\n", "")
+        raise AssertionError("The runner must not start when working directory creation fails")
+
+    def denied_working_directory():
+        raise PermissionError("Access to outputs/shapekernel_work is denied")
+
+    monkeypatch.setenv("NOVA_SHAPEKERNEL_RUNNER", str(runner))
+    monkeypatch.setattr(shapekernel_bridge, "NOVA_CEM_ROOT", artifact_dir)
+    monkeypatch.setattr(shapekernel_bridge.shutil, "which", lambda _name: "dotnet")
+    monkeypatch.setattr(shapekernel_bridge.subprocess, "run", fake_run)
+    bridge = ShapeKernelBridge(backend="shapekernel")
+    monkeypatch.setattr(bridge, "_create_working_directory", denied_working_directory)
+
+    result = bridge.build_rocket_stl(
+        nozzle_type="bell",
+        throat_radius_mm=8.0,
+        chamber_radius_mm=20.0,
+        expansion_ratio=20.0,
+        chamber_length_mm=70.0,
+        wall_thickness_mm=1.5,
+        n_cooling_channels=8,
+    )
+
+    assert result is None
+    assert bridge.status.active_backend == "cadquery"
+    assert "Traceback" in (bridge.status.reason or "")
+    assert "PermissionError: Access to outputs/shapekernel_work is denied" in (bridge.status.reason or "")
+    assert "Traceback" in capsys.readouterr().err
 
 
 def test_native_shapekernel_stl_is_copied_after_validation(monkeypatch):

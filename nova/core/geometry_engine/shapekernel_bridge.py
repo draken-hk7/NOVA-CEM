@@ -15,7 +15,8 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
+import traceback
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -54,6 +55,7 @@ class ShapeKernelBridge:
         requested = (backend or os.getenv("NOVA_GEOMETRY_BACKEND", "cadquery")).strip().lower()
         self.requested_backend = requested if requested in SUPPORTED_GEOMETRY_BACKENDS else "cadquery"
         self._runner_dir = NOVA_CEM_ROOT / "nova" / "shapekernel_runner"
+        self._work_root = NOVA_CEM_ROOT / "outputs" / "shapekernel_work"
         self._searched_runner_paths: list[Path] = []
         self._source_dir = Path(
             os.getenv(
@@ -88,13 +90,12 @@ class ShapeKernelBridge:
             self._fallback("ShapeKernel runner currently supports bell-nozzle STL export only")
             return None
 
-        output_dir = Path(tempfile.mkdtemp(prefix="nova-shapekernel-"))
-        atexit.register(shutil.rmtree, output_dir, ignore_errors=True)
-        output_path = output_dir / "engine.stl"
-        payload = {key: value for key, value in parameters.items() if value is not None}
-        payload["output_stl"] = str(output_path)
-
         try:
+            output_dir = self._create_working_directory()
+            atexit.register(shutil.rmtree, output_dir, ignore_errors=True)
+            output_path = output_dir / "engine.stl"
+            payload = {key: value for key, value in parameters.items() if value is not None}
+            payload["output_stl"] = str(output_path)
             completed = subprocess.run(
                 self._command,
                 input=json.dumps(payload),
@@ -104,21 +105,25 @@ class ShapeKernelBridge:
                 timeout=self.RUNNER_TIMEOUT_SECONDS,
                 check=False,
             )
-        except (OSError, subprocess.SubprocessError) as exc:
-            self._fallback(f"ShapeKernel runner could not start: {exc}")
+        except Exception:
+            self._fallback_with_traceback("ShapeKernel runner could not start")
             return None
 
-        response = self._response_from_stdout(completed.stdout)
-        if completed.returncode != 0 or not response.get("success"):
-            detail = str(response.get("error") or completed.stderr or completed.stdout).strip()
-            self._fallback(f"ShapeKernel runner failed: {detail[-500:] or 'no diagnostic returned'}")
-            return None
-        reported_path = response.get("stl_path")
-        if reported_path and Path(str(reported_path)).resolve() != output_path.resolve():
-            self._fallback("ShapeKernel runner returned an unexpected STL output path")
-            return None
-        if not output_path.is_file() or output_path.stat().st_size == 0:
-            self._fallback("ShapeKernel runner reported success but did not create an STL")
+        try:
+            response = self._response_from_stdout(completed.stdout)
+            if completed.returncode != 0 or not response.get("success"):
+                detail = str(response.get("error") or completed.stderr or completed.stdout).strip()
+                self._fallback(f"ShapeKernel runner failed: {detail or 'no diagnostic returned'}")
+                return None
+            reported_path = response.get("stl_path")
+            if reported_path and Path(str(reported_path)).resolve() != output_path.resolve():
+                self._fallback("ShapeKernel runner returned an unexpected STL output path")
+                return None
+            if not output_path.is_file() or output_path.stat().st_size == 0:
+                self._fallback("ShapeKernel runner reported success but did not create an STL")
+                return None
+        except Exception:
+            self._fallback_with_traceback("ShapeKernel runner output validation failed")
             return None
 
         self.reason = None
@@ -209,6 +214,16 @@ class ShapeKernelBridge:
         self.active_backend = "cadquery"
         self.reason = reason
         self._debug(f"Falling back to CadQuery: {reason}. Searched: {self._runner_search_summary()}")
+
+    def _create_working_directory(self) -> Path:
+        self._work_root.mkdir(parents=True, exist_ok=True)
+        output_dir = self._work_root / f"run-{uuid.uuid4().hex}"
+        output_dir.mkdir()
+        self._debug(f"Using ShapeKernel working directory: {output_dir}")
+        return output_dir
+
+    def _fallback_with_traceback(self, context: str) -> None:
+        self._fallback(f"{context}:\n{traceback.format_exc()}")
 
     def _runner_search_summary(self) -> str:
         if not self._searched_runner_paths:
